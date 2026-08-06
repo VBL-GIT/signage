@@ -1,0 +1,33 @@
+# Render Blueprint — free-tier backend API (builds from backend/Dockerfile).
+# In Render: New + → Blueprint → connect this repo. Secret env vars (sync:false)
+# are entered in the dashboard after the service is created.
+services:
+  - type: web
+    name: signage-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: singapore          # closest free region to India
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_STORAGE_BUCKET
+        value: signage-photos
+      # Leave blank for the demo (open CORS). For production set to your web URL,
+      # e.g. https://signage-web.vercel.app
+      - key: ALLOWED_ORIGINS
+        value: ""
+      # --- secrets: paste these in the Render dashboard (copy from backend/.env) ---
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false

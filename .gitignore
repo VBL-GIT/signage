@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+web-build/
+
+# Secrets — NEVER commit real env files (.env.example templates are kept)
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# Expo / RN
+.expo/
+*.jks
+*.keystore
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Leftover Expo starter scaffold (not the real mobile app — that's /mobile)
+backend/Signagemobile/
