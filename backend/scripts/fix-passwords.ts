@@ -11,5 +11,4 @@ async function main() {
   console.log('Passwords updated successfully');
   await pool.end();
 }
-
 main().catch(console.error);
