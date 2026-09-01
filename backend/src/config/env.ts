@@ -33,7 +33,13 @@ const envSchema = z
     // Resend; defaults to their no-verification-needed sandbox sender.
     RESEND_FROM: z.string().default('VBL Signage <onboarding@resend.dev>'),
     // Verify the recipient domain can receive mail (DNS MX lookup) before creating.
-    EMAIL_VERIFY_MX: z.coerce.boolean().default(false),
+    // Opt-in: only the literal "true" or "1" enables it. NOT z.coerce.boolean(),
+    // which applies Boolean(value) and so turns every non-empty string — including
+    // "false" and "0" — into true, silently enabling live DNS lookups.
+    EMAIL_VERIFY_MX: z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
     // Login URL included in the credential email. Defaults to first allowed origin.
     APP_WEB_URL: z.string().optional(),
   })

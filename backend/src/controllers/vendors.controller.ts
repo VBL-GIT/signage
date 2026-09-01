@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
+import { sendVendorWelcomeEmail } from '../services/email.service';
+import { validateEmail } from '../services/validation';
 
 const COLUMNS = 'id, uid, code, name, contact_person, contact_phone, contact_email, is_active, created_at';
 
@@ -10,12 +12,29 @@ export async function listVendors(_req: AuthRequest, res: Response) {
 }
 
 export async function createVendor(req: AuthRequest, res: Response) {
-  const { uid, name, contact_person, contact_phone, contact_email } = req.body;
+  const { uid, name, contact_person, contact_phone } = req.body;
+
+  // Syntax + typo check before anything else, so an obviously-wrong address is
+  // rejected with a useful message rather than stored and silently undeliverable.
+  const syntax = validateEmail(req.body.contact_email, 'contact_email');
+  if (!syntax.ok) { res.status(400).json({ error: syntax.reason }); return; }
+  const contact_email = syntax.value;
 
   const { rows: dupe } = await pool.query(
     'SELECT id FROM vendors WHERE lower(contact_email) = lower($1)', [contact_email]
   );
   if (dupe.length) { res.status(409).json({ error: 'A vendor with this email already exists' }); return; }
+
+  // Vendor names are the human handle used across the console and the task
+  // importer, so flag an exact-name collision instead of creating a second
+  // indistinguishable master record.
+  const { rows: nameDupe } = await pool.query(
+    'SELECT id, uid FROM vendors WHERE lower(name) = lower($1)', [String(name).trim()]
+  );
+  if (nameDupe.length) {
+    res.status(409).json({ error: `A vendor named "${String(name).trim()}" already exists (${nameDupe[0].uid})` });
+    return;
+  }
 
   try {
     const { rows } = await pool.query(
@@ -34,7 +53,17 @@ export async function createVendor(req: AuthRequest, res: Response) {
       );
       vendor = upd.rows[0];
     }
-    res.status(201).json(vendor);
+    // Registration confirmation — deliberately no credentials: a vendor master
+    // is not a login account. Best-effort; never fails vendor creation.
+    const email_sent = vendor.contact_email
+      ? await sendVendorWelcomeEmail({
+          to: vendor.contact_email,
+          vendorName: vendor.name,
+          vendorUid: vendor.uid,
+          contactPerson: vendor.contact_person,
+        })
+      : false;
+    res.status(201).json({ ...vendor, email_sent });
   } catch (e) {
     if ((e as { code?: string }).code === '23505') {
       const constraint = (e as { constraint?: string }).constraint;
@@ -54,12 +83,20 @@ export async function updateVendor(req: AuthRequest, res: Response) {
   const { name, contact_person, contact_phone, contact_email } = req.body as {
     name?: string; contact_person?: string; contact_phone?: string; contact_email?: string;
   };
-  if (contact_email !== undefined && contact_email.trim()) {
-    const { rows: dupe } = await pool.query(
-      'SELECT id FROM vendors WHERE lower(contact_email) = lower($1) AND id != $2',
-      [contact_email.trim(), req.params.id]
-    );
-    if (dupe.length) { res.status(409).json({ error: 'A vendor with this email already exists' }); return; }
+  let cleanEmail: string | null | undefined;
+  if (contact_email !== undefined) {
+    if (contact_email.trim()) {
+      const syntax = validateEmail(contact_email, 'contact_email');
+      if (!syntax.ok) { res.status(400).json({ error: syntax.reason }); return; }
+      cleanEmail = syntax.value;
+      const { rows: dupe } = await pool.query(
+        'SELECT id FROM vendors WHERE lower(contact_email) = lower($1) AND id != $2',
+        [cleanEmail, req.params.id]
+      );
+      if (dupe.length) { res.status(409).json({ error: 'A vendor with this email already exists' }); return; }
+    } else {
+      cleanEmail = null; // explicit clear
+    }
   }
 
   const sets: string[] = [];
@@ -68,7 +105,7 @@ export async function updateVendor(req: AuthRequest, res: Response) {
   if (name !== undefined) add('name', name.trim());
   if (contact_person !== undefined) add('contact_person', contact_person.trim() || null);
   if (contact_phone !== undefined) add('contact_phone', contact_phone.trim() || null);
-  if (contact_email !== undefined) add('contact_email', contact_email.trim() || null);
+  if (contact_email !== undefined) add('contact_email', cleanEmail ?? null);
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
   params.push(req.params.id);
   try {

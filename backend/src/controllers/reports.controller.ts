@@ -313,7 +313,7 @@ export async function exportStoresReport(req: AuthRequest, res: Response) {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const { rows } = await pool.query(
-    `SELECT s.uid, s.name, s.address, s.pincode, s.lat, s.long,
+    `SELECT s.uid, s.customer_code, s.outlet_status, s.name, s.address, s.pincode, s.lat, s.long,
             s.contact_person, s.contact_no, s.contact_email,
             v.uid as vendor_uid, v.name as vendor_name,
             (SELECT COUNT(*) FROM tasks tk WHERE tk.store_id = s.id) as total_tasks,
@@ -327,6 +327,7 @@ export async function exportStoresReport(req: AuthRequest, res: Response) {
   );
 
   const report = rows.map((r) => ({
+    'Customer Code': r.customer_code ?? '',
     'Store UID': r.uid ?? '',
     'Store Name': r.name,
     'Address': r.address,
@@ -336,6 +337,7 @@ export async function exportStoresReport(req: AuthRequest, res: Response) {
     'Contact Person': r.contact_person ?? '',
     'Contact No': r.contact_no ?? '',
     'Contact Email': r.contact_email ?? '',
+    'Outlet Status': r.outlet_status ?? '',
     'Vendor UID': r.vendor_uid ?? '',
     'Vendor': r.vendor_name ?? 'Unmapped',
     'Total Tasks': r.total_tasks ?? 0,

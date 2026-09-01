@@ -118,6 +118,37 @@ export async function createTask(req: AuthRequest, res: Response) {
     }
   }
 
+  // Every id below is a foreign key. Zod proves the value is a well-formed UUID
+  // but not that the row exists, so an unknown id would otherwise reach the
+  // INSERT and trip a constraint — surfacing as a blanket 500 that says nothing
+  // about which reference was wrong. Check them here and answer 404 naming the
+  // specific entity. (The bulk importer resolves these by UID and already
+  // rejects unknown values per row.)
+  const missingRef = async (sql: string, id: string) =>
+    (await pool.query(sql, [id])).rows.length === 0;
+
+  if (store_id && await missingRef('SELECT 1 FROM stores WHERE id = $1', store_id)) {
+    res.status(404).json({ error: 'Store not found' }); return;
+  }
+  if (vendor_id && await missingRef('SELECT 1 FROM vendors WHERE id = $1', vendor_id)) {
+    res.status(404).json({ error: 'Vendor not found' }); return;
+  }
+  if (employee_id && await missingRef('SELECT 1 FROM users WHERE id = $1', employee_id)) {
+    res.status(404).json({ error: 'Employee not found' }); return;
+  }
+  if (supervisor_id && await missingRef('SELECT 1 FROM users WHERE id = $1', supervisor_id)) {
+    res.status(404).json({ error: 'Supervisor not found' }); return;
+  }
+  if (brand_id && await missingRef('SELECT 1 FROM brands WHERE id = $1', brand_id)) {
+    res.status(404).json({ error: 'Brand not found' }); return;
+  }
+  if (artwork_id && await missingRef('SELECT 1 FROM artworks WHERE id = $1', artwork_id)) {
+    res.status(404).json({ error: 'Artwork not found' }); return;
+  }
+  if (boarding_size_id && await missingRef('SELECT 1 FROM standard_boarding_sizes WHERE id = $1', boarding_size_id)) {
+    res.status(404).json({ error: 'Boarding size not found' }); return;
+  }
+
   const isInstall = task_type === 'installation';
   const isBoarding = isInstall && installation_type === 'direct_boarding';
 

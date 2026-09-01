@@ -26,17 +26,23 @@ SPECS = {
         ("contact_phone", False, "Contact phone number."),
         ("contact_email", False, "Vendor email address."),
     ],
+    # Customer Code is the business key: a row whose customer_code already
+    # exists UPDATES that store in place (same store record, so its existing
+    # tasks stay attached); a new customer_code creates one. vendor_uid is
+    # deliberately NOT a column — a store's vendor mapping is managed
+    # separately and is never changed by a store upload.
     "stores": [
+        ("customer_code", True, "Customer Code — the key that decides update vs. create. Must be unique."),
+        ("uid", True, "Store UID. Mandatory, and unique across all stores."),
         ("name", True, "Store name."),
         ("address", True, "Full store address."),
         ("pincode", True, "PIN code."),
-        ("lat", True, "Latitude (decimal)."),
-        ("long", True, "Longitude (decimal)."),
-        ("uid", False, "Store UID — used as the de-dupe key on re-upload."),
-        ("contact_no", False, "Store contact phone."),
-        ("contact_email", False, "Store contact email."),
-        ("contact_person", False, "Store contact person."),
-        ("vendor_uid", False, "Vendor this store belongs to (must exist), e.g. VND-001."),
+        ("lat", True, "Latitude (decimal), between -90 and 90."),
+        ("long", True, "Longitude (decimal), between -180 and 180."),
+        ("contact_no", True, "Store contact phone."),
+        ("contact_email", True, "Store contact email. Must be a valid address."),
+        ("contact_person", True, "Store contact person."),
+        ("outlet_status", False, "Outlet status from the customer master, e.g. ACTIVE."),
     ],
     "users": [
         ("first_name", True, "Given name."),
@@ -44,26 +50,28 @@ SPECS = {
         ("email", True, "Login email (unique)."),
         ("role", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user."),
         ("mobile", False, "Mobile number."),
-        ("password", False, "Initial password (defaults to password123 if blank)."),
         ("vendor_uid", False, "Required for employee/vendor roles. Must exist, e.g. VND-001."),
     ],
     # Tasks are split by type — one template per task type. The task type is fixed
     # by which template you use, so no task_type / installation_type columns.
     "tasks_recee": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("store_uid", True, "Store the recee is for (must exist), e.g. ST-001."),
+        ("store_uid", True, "Mandatory. Store the recee is for (must exist), e.g. ST-001."),
     ],
+    # Pamphlet distribution is area-based, so this is the one task template
+    # where store_uid stays optional — the work is located by pincode/area and
+    # may not correspond to a single physical store.
     "tasks_direct": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("store_uid", False, "Optional. Must exist, e.g. ST-001."),
+        ("store_uid", False, "Optional for pamphlet distribution — this task can be area/pincode based. If given, the store must exist, e.g. ST-001."),
         ("pincode", False, "Area PIN for the pamphlet distribution."),
         ("target_pamphlet_count", False, "Target number of pamphlets to distribute."),
     ],
     "tasks_boarding": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("store_uid", True, "Store the installation is for (must exist), e.g. ST-001."),
+        ("store_uid", True, "Mandatory. Store the installation is for (must exist), e.g. ST-001."),
         ("brand_name", False, "Must match an existing brand."),
-        ("artwork_name", False, "Must be an artwork of that brand."),
+        ("artwork_name", False, "Artwork name / code. Must be an artwork of that brand."),
         ("width_in", False, "Board width in inches (e.g. 48). Pair with height_in."),
         ("height_in", False, "Board height in inches (e.g. 36). Pair with width_in."),
     ],
@@ -89,21 +97,25 @@ SAMPLES = {
         ["Prime Display Solutions", "Neha Bansal", "9800000005", "neha@primedisplay.example"],
         ["Coastal Signage Works", "", "9800000006", ""],
     ],
+    # customer_code, uid, name, address, pincode, lat, long,
+    # contact_no, contact_email, contact_person, outlet_status
     "stores": [
-        ["VBL Store - Andheri", "Plot 4, Andheri East", "400069", 19.1197, 72.8468, "ST-101", "02233440001", "andheri@vbl.example", "Store Mgr A", "VND-001"],
-        ["VBL Store - Salt Lake", "Sector V, Salt Lake", "700091", 22.5697, 88.4336, "ST-102", "03344550002", "saltlake@vbl.example", "Store Mgr B", "VND-001"],
-        ["VBL Store - Koramangala", "80 Ft Road, Koramangala", "560095", 12.9352, 77.6245, "ST-103", "", "", "", "VND-001"],
-        ["VBL Store - Hitech City", "Cyber Towers, Madhapur", "500081", 17.4483, 78.3915, "ST-104", "04044550004", "hitechcity@vbl.example", "Store Mgr C", "VND-002"],
-        ["VBL Store - Vaishali Nagar", "Vaishali Nagar Main Rd", "302021", 26.9124, 75.7305, "ST-105", "01414550005", "", "", "VND-002"],
-        ["VBL Store - Anna Nagar", "2nd Ave, Anna Nagar", "600040", 13.0850, 80.2101, "ST-106", "", "", "Store Mgr D", "VND-001"],
+        ["YG000000026", "ST-101", "VBL Store - Andheri", "Plot 4, Andheri East", "400069", 19.1197, 72.8468, "02233440001", "andheri@vbl.example", "Store Mgr A", "ACTIVE"],
+        ["YG000000033", "ST-102", "VBL Store - Salt Lake", "Sector V, Salt Lake", "700091", 22.5697, 88.4336, "03344550002", "saltlake@vbl.example", "Store Mgr B", "ACTIVE"],
+        ["YG000000037", "ST-103", "VBL Store - Koramangala", "80 Ft Road, Koramangala", "560095", 12.9352, 77.6245, "08044550003", "koramangala@vbl.example", "Store Mgr C", "ACTIVE"],
+        ["YG000000038", "ST-104", "VBL Store - Hitech City", "Cyber Towers, Madhapur", "500081", 17.4483, 78.3915, "04044550004", "hitechcity@vbl.example", "Store Mgr D", "ACTIVE"],
+        ["YG000101108", "ST-105", "VBL Store - Vaishali Nagar", "Vaishali Nagar Main Rd", "302021", 26.9124, 75.7305, "01414550005", "vaishali@vbl.example", "Store Mgr E", "ACTIVE"],
+        ["YG000101109", "ST-106", "VBL Store - Anna Nagar", "2nd Ave, Anna Nagar", "600040", 13.0850, 80.2101, "04444550006", "annanagar@vbl.example", "Store Mgr F", "ACTIVE"],
     ],
+    # No password column: each account's initial password is generated by the
+    # server and emailed to its owner.
     "users": [
-        ["Ramesh", "Yadav", "ramesh.yadav@vendor.example", "employee", "9811110001", "", "VND-001"],
-        ["Sunita", "Rao", "sunita.rao@vendor.example", "employee", "9811110002", "Welcome@123", "VND-001"],
-        ["Deepak", "Nair", "deepak.nair@vendor.example", "vendor_admin", "9811110003", "", "VND-001"],
-        ["Priya", "Menon", "priya.menon@vendor.example", "employee", "9811110004", "", "VND-002"],
-        ["Arjun", "Singh", "arjun.singh@vendor.example", "vendor_user", "9811110005", "", "VND-002"],
-        ["Kavya", "Reddy", "kavya.reddy@rjcorp.example", "rjcorp_user", "9811110006", "", ""],
+        ["Ramesh", "Yadav", "ramesh.yadav@vendor.example", "employee", "9811110001", "VND-001"],
+        ["Sunita", "Rao", "sunita.rao@vendor.example", "employee", "9811110002", "VND-001"],
+        ["Deepak", "Nair", "deepak.nair@vendor.example", "vendor_admin", "9811110003", "VND-001"],
+        ["Priya", "Menon", "priya.menon@vendor.example", "employee", "9811110004", "VND-002"],
+        ["Arjun", "Singh", "arjun.singh@vendor.example", "vendor_user", "9811110005", "VND-002"],
+        ["Kavya", "Reddy", "kavya.reddy@rjcorp.example", "rjcorp_user", "9811110006", ""],
     ],
     "tasks_recee": [
         ["VND-001", "ST-101"],

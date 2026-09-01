@@ -15,6 +15,35 @@ export interface CreateUserInput {
 const VENDOR_SCOPED_ROLES: UserRole[] = ['vendor_admin', 'vendor_user', 'employee'];
 
 /**
+ * User-facing message for a duplicate email.
+ *
+ * users.email is globally unique and stays that way — login resolves an account
+ * by email alone, with no vendor context, so per-vendor uniqueness would make
+ * "which account is this?" ambiguous at sign-in. Both cases are still rejected;
+ * only the wording differs, so an admin can tell "already on my own vendor"
+ * apart from "taken by someone else's".
+ */
+export function duplicateEmailMessage(
+  existingVendorId: string | null,
+  attemptedVendorId: string | null
+): string {
+  const sameVendor =
+    existingVendorId !== null && attemptedVendorId !== null && existingVendorId === attemptedVendorId;
+  return sameVendor
+    ? 'Mail/user already exists in the same vendor.'
+    : 'This email is already registered with another vendor/account.';
+}
+
+/** Look up an account by email (case-insensitive) for duplicate reporting. */
+export async function findUserByEmail(email: string): Promise<{ id: string; vendor_id: string | null } | null> {
+  const { rows } = await pool.query(
+    'SELECT id, vendor_id FROM users WHERE lower(email) = lower($1)',
+    [email.trim()]
+  );
+  return rows[0] ?? null;
+}
+
+/**
  * Resolve & validate the effective role + vendor_id a creator is allowed to set.
  * Throws Error with a human-readable message on a policy violation.
  */

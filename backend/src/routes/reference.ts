@@ -24,8 +24,15 @@ router.post('/users',
   validate(z.object({
     first_name: z.string().min(1),
     last_name: z.string().min(1),
-    email: z.string().email(),
-    password: z.string().min(6),
+    // Shape only — validateEmail() in the controller trims, lower-cases and
+    // applies the syntax/typo rules. Zod's .email() would reject a padded
+    // address outright, so the trim could never happen and the manual endpoint
+    // would disagree with the bulk importer, which trims.
+    email: z.string().min(1),
+    // No password field: the account's initial password is always generated
+    // server-side and emailed to its owner. Zod strips unknown keys, so a
+    // `password` sent by an older client is discarded here and never reaches
+    // the controller — it cannot influence the stored credentials.
     role: z.enum(['rjcorp_admin', 'rjcorp_user', 'vendor_admin', 'vendor_user', 'employee']),
     mobile: z.string().optional(),
     vendor_id: z.string().uuid().optional(),
@@ -42,7 +49,8 @@ router.patch('/users/:id',
   validate(z.object({
     first_name: z.string().min(1).optional(),
     last_name: z.string().min(1).optional(),
-    email: z.string().email().optional(),
+    // Shape only; validateEmail() in updateUser does the real check.
+    email: z.string().min(1).optional(),
     mobile: z.string().optional(),
   })),
   updateUser as any);

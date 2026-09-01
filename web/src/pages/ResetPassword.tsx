@@ -17,7 +17,7 @@ export function ResetPassword() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    if (!token) { setErr('This reset link is missing its token. Request a new one.'); return; }
+    if (!token) { setErr('This link is missing its token. Request a new one.'); return; }
     if (password.length < 6) { setErr('Password must be at least 6 characters.'); return; }
     if (password !== confirm) { setErr('Passwords do not match.'); return; }
     setBusy(true);
@@ -40,8 +40,8 @@ export function ResetPassword() {
           <p className="meta">Password updated. Redirecting to sign in…</p>
         ) : !token ? (
           <>
-            <ErrorBanner msg="This reset link is missing its token." />
-            <Link to="/forgot-password" className="meta">Request a new reset link</Link>
+            <ErrorBanner msg="This link is missing its token." />
+            <Link to="/forgot-password" className="meta">Request a new link</Link>
           </>
         ) : (
           <form onSubmit={submit}>

@@ -7,6 +7,7 @@ import {
   downloadVendorsReport, downloadEmployeesReport, downloadBrandsReport, downloadArtworksReport,
 } from '../api';
 import type { Vendor, User, Role, PrivilegeDef, Privilege, Brand, Artwork } from '../types';
+import { ROLE_LABELS } from '../types';
 import { Button, Card, Spinner, ErrorBanner } from '../components/ui';
 import { useLightbox } from '../components/Lightbox';
 import { DownloadReportButton } from '../components/DownloadReportButton';
@@ -307,14 +308,29 @@ function Vendors() {
   );
 }
 
+/** One labelled read-only field in the user details panel. */
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="meta" style={{ marginBottom: 2 }}>{label}</div>
+      <div>{value ?? <span className="muted">—</span>}</div>
+    </div>
+  );
+}
+
 function Employees() {
   const [users, setUsers] = useState<User[] | null>(null);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
+  const [viewId, setViewId] = useState<string | null>(null);
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', mobile: '' });
   useEffect(() => { getUsers({ role: 'employee' }).then(setUsers).catch((e) => setErr(apiError(e))); }, []);
+  // Only head office can list vendors; degrade to "no vendor names" for others.
+  useEffect(() => { getVendors().then(setVendors).catch(() => setVendors([])); }, []);
+  const vendorName = (id: string | null) => vendors.find((v) => v.id === id)?.name ?? null;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return users ?? [];
@@ -371,9 +387,29 @@ function Employees() {
                 <div>
                   <div style={{ fontWeight: 700 }}>{u.name} {u.uid && <span className="muted">· {u.uid}</span>}</div>
                   <div className="meta">{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
+                  {viewId === u.id && (
+                    <div
+                      className="grid2"
+                      style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', gap: 10 }}
+                    >
+                      <Detail label="Full name" value={u.name} />
+                      <Detail label="User UID" value={u.uid} />
+                      <Detail label="First name" value={u.first_name} />
+                      <Detail label="Last name" value={u.last_name} />
+                      <Detail label="Email" value={u.email} />
+                      <Detail label="Mobile" value={u.phone} />
+                      <Detail label="Role" value={ROLE_LABELS[u.role] ?? u.role} />
+                      <Detail label="Vendor" value={vendorName(u.vendor_id)} />
+                      <Detail label="Custom role" value={u.custom_role_name} />
+                      <Detail label="Status" value={(u.is_active ?? true) ? 'Active' : 'Inactive'} />
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <StatusPill active={u.is_active ?? true} />
+                  <Button size="sm" variant="secondary" onClick={() => setViewId(viewId === u.id ? null : u.id)}>
+                    {viewId === u.id ? 'Hide' : 'View'}
+                  </Button>
                   <Button size="sm" variant="secondary" onClick={() => startEdit(u)}>Edit</Button>
                   <Button size="sm" variant={(u.is_active ?? true) ? 'danger' : undefined} disabled={busyId === u.id} onClick={() => toggle(u)}>
                     {(u.is_active ?? true) ? 'Deactivate' : 'Activate'}

@@ -12,9 +12,10 @@ import {
   createPasswordResetToken,
   validatePasswordResetToken,
   consumePasswordResetToken,
+  buildResetUrl,
 } from '../services/auth.service';
 import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.service';
-import { env, allowedOrigins } from '../config/env';
+
 import { getEffectivePrivileges } from '../auth/privileges';
 import { AuthRequest } from '../middleware/auth';
 
@@ -99,9 +100,7 @@ export async function forgotPassword(req: Request, res: Response) {
   const user = rows[0];
   if (user) {
     const token = await createPasswordResetToken(user.id);
-    const base = env.APP_WEB_URL || allowedOrigins[0] || '';
-    const resetUrl = `${base.replace(/\/$/, '')}/reset-password?token=${token}`;
-    await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl });
+    await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl: buildResetUrl(token) });
   }
   res.json({ message: GENERIC_MSG, email_configured: isEmailConfigured() });
 }
