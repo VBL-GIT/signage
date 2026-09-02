@@ -5,6 +5,7 @@ node_modules/
 dist/
 build/
 web-build/
+*.tsbuildinfo
 
 # Secrets — NEVER commit real env files (.env.example templates are kept)
 .env
@@ -12,6 +13,8 @@ web-build/
 .env.development
 .env.production
 .env.*.local
+.env.bak*
+.env.*.bak
 
 # Expo / RN
 .expo/
