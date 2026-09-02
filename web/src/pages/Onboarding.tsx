@@ -157,7 +157,7 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [roleOptions, setRoleOptions] = useState<Role[]>([]);
   const roles = isRjcorp ? ROLES_RJCORP : ROLES_VENDOR;
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', role: roles[0], mobile: '', vendor_id: '', custom_role_id: '' });
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', role: roles[0], mobile: '', vendor_id: '', custom_role_id: '', password: '' });
   useEffect(() => { if (isRjcorp) getVendors().then(setVendors).catch(() => {}); }, [isRjcorp]);
   useEffect(() => { if (canAssignRole) getRoles().then(setRoleOptions).catch(() => {}); }, [canAssignRole]);
   const needsVendor = isRjcorp && VENDOR_SCOPED.includes(f.role);
@@ -171,6 +171,9 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
     s.setErr(null); s.setOk(null);
     if (!f.first_name || !f.last_name || !f.email) { s.setErr('First name, last name, email required'); return; }
     if (needsVendor && !f.vendor_id) { s.setErr('Select a vendor for this account'); return; }
+    // Caught here as well as server-side so the account is not created before
+    // the admin learns the password was too short to use.
+    if (f.password && f.password.length < 8) { s.setErr('Password must be at least 8 characters'); return; }
     s.setBusy(true);
     try {
       const created = await createUser({
@@ -178,13 +181,20 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
         role: f.role, mobile: f.mobile.trim() || undefined,
         vendor_id: needsVendor ? f.vendor_id : undefined,
         custom_role_id: f.custom_role_id || undefined,
+        password: f.password || undefined,
       });
-      const { user, email_sent } = created;
-      const emailNote = email_sent
-        ? ' · temporary password emailed'
-        : ' · NOTE: email is not configured, so no password was delivered. The user must use “Forgot password”.';
+      const { user, email_sent, password_set_by_admin } = created;
+      // Three outcomes worth telling apart. Only the last one strands the
+      // account, so only it is phrased as a warning.
+      const emailNote = password_set_by_admin
+        ? (email_sent
+            ? ' · your password was set and also emailed to them'
+            : ' · your password was set. Email could not be delivered, so pass it on yourself.')
+        : (email_sent
+            ? ' · temporary password emailed'
+            : ' · WARNING: no password was delivered and none was set, so nobody can log in as this user. Forgot Password also needs email. Delete the account and recreate it with a password.');
       s.setOk((user.uid ? `Account "${f.email}" created · UID ${user.uid}` : `Account "${f.email}" created`) + emailNote);
-      setF({ ...f, first_name: '', last_name: '', email: '', mobile: '', custom_role_id: '' });
+      setF({ ...f, first_name: '', last_name: '', email: '', mobile: '', custom_role_id: '', password: '' });
     } catch (e) { s.setErr(apiError(e)); } finally { s.setBusy(false); }
   }
   return (
@@ -198,9 +208,22 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
       <label>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
       <label>Mobile (optional)</label>
       <input value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
+      {/* INTERIM — remove this field once a Resend domain is verified and
+          delivery works, at which point the generate-and-email path is enough
+          on its own and this can go back to being a note. */}
+      <label>Temporary password (optional)</label>
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={f.password}
+        onChange={(e) => setF({ ...f, password: e.target.value })}
+        placeholder="Leave blank to generate one automatically"
+      />
       <p className="meta" style={{ marginTop: 4 }}>
-        A temporary password is generated automatically and emailed to this address.
-        Nobody else — including you — is shown it.
+        Leave blank and a strong password is generated and emailed to this address —
+        nobody, including you, is shown it. Set one here only while email delivery is
+        unavailable: you will then need to pass it to the user yourself. Minimum 8
+        characters. It is stored encrypted and never displayed again after this.
       </p>
       <label>Role</label>
       <select value={roleSelectValue} onChange={(e) => onRoleChange(e.target.value)}>

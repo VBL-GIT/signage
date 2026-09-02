@@ -214,7 +214,8 @@ export async function setUserRole(req: AuthRequest, res: Response) {
  * It is never logged and never included in the response.
  */
 export async function createUser(req: AuthRequest, res: Response) {
-  const { first_name, last_name, email, role, mobile, vendor_id, custom_role_id } = req.body;
+  const { first_name, last_name, email, role, mobile, vendor_id, custom_role_id,
+          password: adminPassword } = req.body;
   let scope;
   try {
     scope = resolveUserScope(req.user!, role, vendor_id ?? null);
@@ -239,9 +240,16 @@ export async function createUser(req: AuthRequest, res: Response) {
     return;
   }
 
-  // Strong, cryptographically-random. Held in memory only for the two lines
-  // below (hash + email); never persisted or logged in plaintext.
-  const password = generateTemporaryPassword();
+  // Normally strong and cryptographically-random, then emailed to its owner.
+  //
+  // INTERIM: while outbound email is undeliverable an admin may supply the
+  // password instead — otherwise a new account cannot be reached at all, since
+  // Forgot Password needs email too and there is no change-password screen.
+  // Supplied or generated, the plaintext is held in memory only long enough to
+  // be hashed (and emailed, where delivery works): it is never logged, never
+  // returned in the response, and never stored unhashed.
+  const adminSetPassword = typeof adminPassword === 'string' && adminPassword.length > 0;
+  const password = adminSetPassword ? adminPassword : generateTemporaryPassword();
 
   try {
     const created = await insertUser({
@@ -253,17 +261,20 @@ export async function createUser(req: AuthRequest, res: Response) {
       await pool.query('UPDATE users SET custom_role_id = $1 WHERE id = $2', [custom_role_id, created.id]);
       created.custom_role_id = custom_role_id;
     }
-    // The credentials email is the only channel carrying the temporary
-    // password. Best-effort: a failed send never fails account creation, but
-    // it does mean the account must use Forgot Password to get in, which
-    // email_sent: false signals to the admin.
+    // Email still goes out when it can — it is the only channel for a
+    // generated password, and confirms an admin-set one to its owner.
+    // Best-effort: a failed send never fails account creation.
     const email_sent = await sendCredentialsEmail({
       to: cleanEmail, name: created.name, email: cleanEmail, password,
       role: scope.role, uid: created.uid,
     });
     // `created` comes from insertUser's RETURNING list, which does not include
     // password_hash — and the plaintext is deliberately absent here.
-    res.status(201).json({ user: created, email_sent });
+    //
+    // password_set_by_admin lets the console tell the two cases apart: an
+    // undelivered generated password strands the account, whereas an
+    // undelivered admin-set one does not, because the admin already knows it.
+    res.status(201).json({ user: created, email_sent, password_set_by_admin: adminSetPassword });
   } catch (e) {
     if ((e as { code?: string }).code === '23505') {
       // Race backstop — the pre-check above handles the common case.

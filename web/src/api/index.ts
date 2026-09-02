@@ -150,17 +150,23 @@ export async function getUsers(params?: { role?: string }) {
   const { data } = await api.get('/api/users', { params }); return data as User[];
 }
 /**
- * Create an account. There is no password parameter by design: the server
- * generates a temporary password and emails it to the new user. It is never
- * returned here, so `email_sent: false` means nobody can log in as that user
- * until they use Forgot Password.
+ * Create an account. By design the server generates a temporary password and
+ * emails it to the new user; it is never returned here, so `email_sent: false`
+ * would normally mean nobody can log in as that user until they use Forgot
+ * Password.
+ *
+ * INTERIM: `password` may be supplied while outbound email is undeliverable —
+ * Forgot Password needs email too, so without it a new account is stranded.
+ * Omit it and the generate-and-email path runs unchanged. It travels in the
+ * request body only and is never echoed back.
  */
 export async function createUser(body: {
   first_name: string; last_name: string; email: string;
   role: string; mobile?: string; vendor_id?: string; custom_role_id?: string;
+  password?: string;
 }) {
   const { data } = await api.post('/api/users', body);
-  return data as { user: User; email_sent: boolean };
+  return data as { user: User; email_sent: boolean; password_set_by_admin?: boolean };
 }
 export async function setUserRole(id: string, custom_role_id: string | null) {
   const { data } = await api.patch(`/api/users/${id}/role`, { custom_role_id }); return data as User;

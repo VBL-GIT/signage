@@ -29,10 +29,14 @@ router.post('/users',
     // address outright, so the trim could never happen and the manual endpoint
     // would disagree with the bulk importer, which trims.
     email: z.string().min(1),
-    // No password field: the account's initial password is always generated
-    // server-side and emailed to its owner. Zod strips unknown keys, so a
-    // `password` sent by an older client is discarded here and never reaches
-    // the controller — it cannot influence the stored credentials.
+    // INTERIM — outbound email is not deliverable yet (no verified Resend
+    // domain). Normally the initial password is generated server-side and
+    // emailed, and this field is left empty. While mail cannot be delivered an
+    // admin may set one here instead: without it a new account is unreachable,
+    // because Forgot Password needs email too and there is no change-password
+    // screen. Optional — omit it and the generate-and-email path runs unchanged,
+    // so this reverts by simply going unused once the domain is verified.
+    password: z.string().min(8).max(128).optional(),
     role: z.enum(['rjcorp_admin', 'rjcorp_user', 'vendor_admin', 'vendor_user', 'employee']),
     mobile: z.string().optional(),
     vendor_id: z.string().uuid().optional(),
