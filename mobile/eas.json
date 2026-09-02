@@ -15,7 +15,7 @@
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://signage-api-o9vg.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://signage-api-xsab.onrender.com"
       }
     },
     "production": {

@@ -44,50 +44,140 @@ function loginUrl(): string {
   return env.APP_WEB_URL || allowedOrigins[0] || 'the web console';
 }
 
-/**
- * Email the freshly-created account its login credentials.
- * Returns true if sent, false if email isn't configured or the send failed.
- * Never throws — credential delivery must not fail account creation.
- */
-export async function sendCredentialsEmail(params: {
-  to: string; name: string; email: string; password: string; role?: string;
-}): Promise<boolean> {
-  const resend = getClient();
-  if (!resend) return false;
+export interface CredentialsEmailParams {
+  to: string; name: string; email: string; password: string; role?: string; uid?: string | null;
+}
 
+/**
+ * Render the credentials email. Split out from the send so its contents can be
+ * asserted in tests without configuring or contacting Resend.
+ *
+ * On the "change your password" instruction: this application has no
+ * change-password screen — there is no such endpoint, no web page, and the
+ * mobile Profile screen only shows name/email/role and Sign Out. So the email
+ * points at "Forgot password", which is the only self-service route that
+ * actually exists and works on both web and mobile. If a change-password
+ * feature is added later, this wording should be revisited.
+ */
+export function buildCredentialsEmail(params: CredentialsEmailParams): {
+  subject: string; text: string; html: string;
+} {
   const url = loginUrl();
   const roleLine = params.role ? `\nRole: ${params.role}` : '';
+  const uidLine = params.uid ? `\nUser ID: ${params.uid}` : '';
 
   const text =
     `Hello ${params.name},\n\n` +
     `An account has been created for you on the VBL Signage platform.\n\n` +
-    `Login: ${url}\n` +
-    `Email: ${params.email}\n` +
-    `Password: ${params.password}${roleLine}\n\n` +
-    `For your security, please change your password after your first login.\n\n` +
+    `Login page: ${url}\n` +
+    `Email (username): ${params.email}${uidLine}\n` +
+    `Temporary password: ${params.password}${roleLine}\n\n` +
+    `Sign in with the temporary password above.\n` +
+    `To replace it with a password of your own, use "Forgot password" on the ` +
+    `sign-in page and follow the emailed link.\n` +
+    `Please do not share or forward this email — it contains your password.\n\n` +
     `— VBL Signage`;
+
+  const row = (label: string, value: string, mono = false) =>
+    `<tr><td style="padding:4px 10px;color:#666">${label}</td>` +
+    `<td style="padding:4px 10px"><b${mono ? ' style="font-family:monospace;font-size:15px"' : ''}>${escapeHtml(value)}</b></td></tr>`;
 
   const html =
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">` +
     `<p>Hello <b>${escapeHtml(params.name)}</b>,</p>` +
     `<p>An account has been created for you on the <b>VBL Signage</b> platform.</p>` +
     `<table style="border-collapse:collapse;margin:12px 0">` +
-    `<tr><td style="padding:4px 10px;color:#666">Login</td><td style="padding:4px 10px"><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></td></tr>` +
-    `<tr><td style="padding:4px 10px;color:#666">Email</td><td style="padding:4px 10px"><b>${escapeHtml(params.email)}</b></td></tr>` +
-    `<tr><td style="padding:4px 10px;color:#666">Password</td><td style="padding:4px 10px"><b>${escapeHtml(params.password)}</b></td></tr>` +
-    (params.role ? `<tr><td style="padding:4px 10px;color:#666">Role</td><td style="padding:4px 10px">${escapeHtml(params.role)}</td></tr>` : '') +
+    `<tr><td style="padding:4px 10px;color:#666">Login page</td><td style="padding:4px 10px"><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></td></tr>` +
+    row('Email (username)', params.email) +
+    (params.uid ? row('User ID', params.uid) : '') +
+    row('Temporary password', params.password, true) +
+    (params.role ? row('Role', params.role) : '') +
     `</table>` +
-    `<p style="color:#666">For your security, please change your password after your first login.</p>` +
+    `<p style="color:#666">Sign in with the temporary password above. To replace it with a password of ` +
+    `your own, use “Forgot password” on the sign-in page and follow the emailed link.</p>` +
+    `<p style="color:#666">Please do not share or forward this email — it contains your password.</p>` +
     `<p>— VBL Signage</p></div>`;
+
+  return { subject: 'Your VBL Signage account', text, html };
+}
+
+/**
+ * Email a freshly-created account its login credentials, including the
+ * system-generated temporary password.
+ *
+ * This is the ONLY place the plaintext temporary password is used. It is
+ * bcrypt-hashed before storage, is never written to the database or a log, and
+ * is never returned in an API response — so this email is the single channel by
+ * which it reaches its owner. Note the deliberate consequence: if the send
+ * fails, the password is unrecoverable and the account must use Forgot Password.
+ *
+ * Returns true if sent, false if email isn't configured or the send failed.
+ * Never throws — credential delivery must not fail account creation. The
+ * failure log below records the recipient only, never the password.
+ */
+export async function sendCredentialsEmail(params: CredentialsEmailParams): Promise<boolean> {
+  const resend = getClient();
+  if (!resend) return false;
+
+  const { subject, text, html } = buildCredentialsEmail(params);
 
   try {
     const { error } = await resend.emails.send({
-      from: env.RESEND_FROM, to: params.to, subject: 'Your VBL Signage account', text, html,
+      from: env.RESEND_FROM, to: params.to, subject, text, html,
     });
     if (error) throw new Error(error.message);
     return true;
   } catch (e) {
+    // Recipient only — never the password.
     console.error(`Failed to send credentials email to ${params.to}:`, (e as Error).message);
+    return false;
+  }
+}
+
+/**
+ * Confirm to a vendor that their company has been registered.
+ *
+ * A vendor is a master record, not a login — so this deliberately carries no
+ * credentials and no sign-in link. Vendor Admin / Vendor User accounts are
+ * created separately as users, and those receive their own credentials email.
+ */
+export async function sendVendorWelcomeEmail(params: {
+  to: string; vendorName: string; vendorUid: string; contactPerson?: string | null;
+}): Promise<boolean> {
+  const resend = getClient();
+  if (!resend) return false;
+
+  const greeting = params.contactPerson ? `Hello ${params.contactPerson},` : 'Hello,';
+  const text =
+    `${greeting}\n\n` +
+    `${params.vendorName} has been registered as a vendor on the VBL Signage platform.\n\n` +
+    `Vendor name: ${params.vendorName}\n` +
+    `Vendor UID: ${params.vendorUid}\n\n` +
+    `Please quote this Vendor UID in any correspondence about signage work.\n` +
+    `User accounts for your team are set up separately — anyone who needs access ` +
+    `will receive their own email.\n\n` +
+    `— VBL Signage`;
+
+  const html =
+    `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">` +
+    `<p>${escapeHtml(greeting)}</p>` +
+    `<p><b>${escapeHtml(params.vendorName)}</b> has been registered as a vendor on the <b>VBL Signage</b> platform.</p>` +
+    `<table style="border-collapse:collapse;margin:12px 0">` +
+    `<tr><td style="padding:4px 10px;color:#666">Vendor name</td><td style="padding:4px 10px"><b>${escapeHtml(params.vendorName)}</b></td></tr>` +
+    `<tr><td style="padding:4px 10px;color:#666">Vendor UID</td><td style="padding:4px 10px"><b>${escapeHtml(params.vendorUid)}</b></td></tr>` +
+    `</table>` +
+    `<p style="color:#666">Please quote this Vendor UID in any correspondence about signage work. ` +
+    `User accounts for your team are set up separately — anyone who needs access will receive their own email.</p>` +
+    `<p>— VBL Signage</p></div>`;
+
+  try {
+    const { error } = await resend.emails.send({
+      from: env.RESEND_FROM, to: params.to, subject: `${params.vendorName} is registered on VBL Signage`, text, html,
+    });
+    if (error) throw new Error(error.message);
+    return true;
+  } catch (e) {
+    console.error(`Failed to send vendor welcome email to ${params.to}:`, (e as Error).message);
     return false;
   }
 }

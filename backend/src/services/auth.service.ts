@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { pool } from '../config/db';
-import { env } from '../config/env';
+import { env, allowedOrigins } from '../config/env';
 import { UserRole } from '../types/domain';
 
 export async function hashPassword(password: string) {
@@ -58,6 +58,12 @@ export async function revokeAllRefreshTokens(userId: string) {
 }
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/** Build the web-console URL a password reset token is redeemed at. */
+export function buildResetUrl(token: string): string {
+  const base = env.APP_WEB_URL || allowedOrigins[0] || '';
+  return `${base.replace(/\/$/, '')}/reset-password?token=${token}`;
+}
 
 /** Issue a single-use password reset token (raw value returned once, only the hash is stored). */
 export async function createPasswordResetToken(userId: string): Promise<string> {

@@ -5,9 +5,20 @@ import { PoolClient } from 'pg';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 import { UserRole } from '../types/domain';
-import { resolveUserScope } from '../services/users.service';
-import { isEmailConfigured, sendCredentialsEmail } from '../services/email.service';
+import { resolveUserScope, duplicateEmailMessage } from '../services/users.service';
+import {
+  isEmailConfigured, sendCredentialsEmail, sendVendorWelcomeEmail, verifyEmailDeliverable,
+} from '../services/email.service';
+import { generateTemporaryPassword } from '../services/password';
 import { env } from '../config/env';
+import { emailDomain, joinAddressParts, validateEmail, validateOptionalEmail } from '../services/validation';
+import {
+  StoreInput,
+  bulkUpsertStores,
+  loadStoreIdentityLookup,
+  normalizeStoreInput,
+  resolveStoreIdentity,
+} from '../services/stores.service';
 
 interface RowError { row: number; reason: string }
 
@@ -92,10 +103,23 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
 // ----------------------------------------------------------------------------
 /**
  * Bulk onboard users from an Excel file.
- * Expected columns: first_name, last_name, email, role, mobile, password (optional), vendor_uid (optional)
+ * Expected columns: first_name, last_name, email, role, mobile, vendor_uid (optional).
+ * Passwords are NOT taken from the sheet — each account gets a generated one.
  */
 const ROLE_LETTER: Partial<Record<UserRole, string>> = { employee: 'E', vendor_admin: 'A', vendor_user: 'U' };
 const VENDOR_SCOPED: UserRole[] = ['vendor_admin', 'vendor_user', 'employee'];
+
+/**
+ * Roles a spreadsheet row may name. The manual endpoint gets this from its Zod
+ * enum, but bulk rows never pass through Zod — only `file_url` does — so the
+ * value has to be checked here.
+ *
+ * Without it an unrecognised role (a capitalised "Employee", say) survives
+ * resolveUserScope, which only asks whether the role is vendor-scoped, and is
+ * caught much later by the users_role_check constraint. That surfaces as a
+ * blanket 500 with no row number instead of a per-row validation failure.
+ */
+const VALID_ROLES: UserRole[] = ['rjcorp_admin', 'rjcorp_user', 'vendor_admin', 'vendor_user', 'employee'];
 
 export async function bulkUsers(req: AuthRequest, res: Response) {
   const { file_url } = req.body;
@@ -117,22 +141,36 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
     const r = rows[i];
     const rowNum = i + 2;
     try {
-      const role = str(r.role) as UserRole;
+      const rawRole = str(r.role);
+      if (!VALID_ROLES.includes(rawRole as UserRole)) {
+        throw new Error(
+          rawRole
+            ? `Invalid role "${rawRole}". Must be one of: ${VALID_ROLES.join(', ')}`
+            : `role is required. Must be one of: ${VALID_ROLES.join(', ')}`
+        );
+      }
+      const role = rawRole as UserRole;
       const vendorUid = str(r.vendor_uid);
       const bodyVendorId = vendorUid ? vendorByUid.get(vendorUid)?.id ?? null : null;
       if (vendorUid && !bodyVendorId) throw new Error(`Unknown vendor_uid "${vendorUid}"`);
       const scope = resolveUserScope(req.user!, role, bodyVendorId);
 
-      const first = str(r.first_name), last = str(r.last_name), email = str(r.email);
+      const first = str(r.first_name), last = str(r.last_name);
       if (!first || !last) throw new Error('first_name and last_name are required');
-      if (!email) throw new Error('email is required');
-      const key = email.toLowerCase();
-      if (seenEmails.has(key)) throw new Error('Duplicate email within the file');
-      seenEmails.add(key);
+
+      // Same syntax + typo rules as the manual Create Account form.
+      const check = validateEmail(r.email, 'email');
+      if (!check.ok) throw new Error(check.reason!);
+      const email = check.value;
+      if (seenEmails.has(email)) throw new Error('Duplicate email within the file');
+      seenEmails.add(email);
 
       valid.push({
-        row: rowNum, name: `${first} ${last}`.trim(), first, last, email: email.toLowerCase(),
-        password: str(r.password) || 'password123',
+        row: rowNum, name: `${first} ${last}`.trim(), first, last, email,
+        // A distinct cryptographically-random password per row. Any `password`
+        // column in the sheet is ignored — the file must never be able to set
+        // credentials, and the old `password123` fallback is gone.
+        password: generateTemporaryPassword(),
         role: scope.role, mobile: str(r.mobile) || null, vendorId: scope.vendor_id,
       });
     } catch (e) {
@@ -145,12 +183,26 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
   // failed upload never leaves a partial result the admin has to untangle.
   if (valid.length) {
     const { rows: ex } = await pool.query(
-      'SELECT lower(email) AS e FROM users WHERE lower(email) = ANY($1)',
-      [valid.map((v) => v.email.toLowerCase())]
+      'SELECT lower(email) AS e, vendor_id FROM users WHERE lower(email) = ANY($1)',
+      [valid.map((v) => v.email)]
     );
-    const existing = new Set(ex.map((x) => x.e));
+    const existing = new Map<string, string | null>(ex.map((x) => [x.e, x.vendor_id]));
     for (const v of valid) {
-      if (existing.has(v.email.toLowerCase())) failed.push({ row: v.row, reason: `Email already exists: ${v.email}` });
+      if (existing.has(v.email)) {
+        // Same wording as the manual form: same-vendor vs. another account.
+        failed.push({ row: v.row, reason: `${duplicateEmailMessage(existing.get(v.email)!, v.vendorId)} (${v.email})` });
+      }
+    }
+
+    // Deliverability (DNS MX) — matches the manual endpoint. No-op unless
+    // EMAIL_VERIFY_MX is on; resolved once per distinct domain, not per row,
+    // so a large import doesn't fire thousands of identical DNS lookups.
+    const domains = [...new Set(valid.map((v) => emailDomain(v.email)))];
+    const verdicts = new Map<string, { ok: boolean; reason?: string }>();
+    await Promise.all(domains.map(async (d) => verdicts.set(d, await verifyEmailDeliverable(`probe@${d}`))));
+    for (const v of valid) {
+      const verdict = verdicts.get(emailDomain(v.email));
+      if (verdict && !verdict.ok) failed.push({ row: v.row, reason: verdict.reason || 'Invalid email domain' });
     }
   }
 
@@ -189,25 +241,48 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
   const out = await inTransaction((client) => chunkedInsert(
     client, 'users',
     ['name', 'first_name', 'last_name', 'email', 'password_hash', 'role', 'phone', 'vendor_id', 'uid'],
-    tuples, { returning: 'id' }
+    tuples, { returning: 'id, email, uid' }
   ));
   const inserted = out.length;
+  // Map by email rather than trusting RETURNING to come back in VALUES order.
+  const rowByEmail = new Map<string, { id: string; uid: string | null }>(
+    out.map((r) => [String(r.email).toLowerCase(), { id: r.id, uid: r.uid }])
+  );
 
-  // Email credentials to the newly-onboarded users (best-effort, capped
-  // concurrency). No-op unless SMTP is configured. For very large imports a
+  // Email each new account its own temporary password — same flow and template
+  // as the manual Create Account form. Best-effort with capped concurrency;
+  // no-op unless RESEND_API_KEY is configured. For very large imports a
   // background queue would be preferable.
+  //
+  // The response reports counts and the ADDRESSES whose delivery failed —
+  // never a password. An address that fails here has an undeliverable
+  // temporary password that is gone once this request ends, so the admin needs
+  // to know exactly who must use Forgot Password. The addresses came from the
+  // admin's own upload, so echoing them back reveals nothing new.
   let emailed = 0;
+  const email_failed: string[] = [];
   if (isEmailConfigured() && valid.length) {
     const CONC = 5;
     for (let i = 0; i < valid.length; i += CONC) {
       const slice = valid.slice(i, i + CONC);
-      const results = await Promise.all(slice.map((u) =>
-        sendCredentialsEmail({ to: u.email, name: u.name, email: u.email, password: u.password, role: u.role })
-      ));
-      emailed += results.filter(Boolean).length;
+      const results = await Promise.all(slice.map(async (u) => {
+        const created = rowByEmail.get(u.email);
+        if (!created) return false;
+        return sendCredentialsEmail({
+          to: u.email, name: u.name, email: u.email,
+          password: u.password, role: u.role, uid: created.uid,
+        });
+      }));
+      results.forEach((ok, k) => {
+        if (ok) emailed++;
+        else email_failed.push(slice[k].email);
+      });
     }
+  } else if (valid.length) {
+    // Email not configured at all: no password reached anyone.
+    email_failed.push(...valid.map((u) => u.email));
   }
-  res.json({ inserted, emailed, failed });
+  res.json({ inserted, emailed, email_failed, failed });
 }
 
 // ----------------------------------------------------------------------------
@@ -355,75 +430,122 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
 
 // ----------------------------------------------------------------------------
 /**
- * Bulk create stores from an Excel file (RJCorp admin only).
- * Columns: name, address, pincode, lat, long, uid, contact_no, contact_email, contact_person, vendor_uid
+ * Map one row of the 56-column customer-master ("speed dump") export onto the
+ * store fields this application actually uses. The ~44 columns with no home
+ * here are not discarded — the whole original row is preserved verbatim in
+ * stores.source_metadata.
+ *
+ * That export has no email column at all, so contact_email is never set by
+ * this channel (and the upsert preserves any address already on record).
+ */
+function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown> {
+  return {
+    customer_code: str(r.CUST_CD),
+    uid: str(r.CUST_UID),
+    name: str(r.CUST_NAME),
+    address: joinAddressParts([r.ADDR_1, r.ADDR_2, r.ADDR_3, r.ADDR_4, r.ADDR_5]),
+    pincode: str(r.ADDR_POSTAL),
+    lat: str(r.LATITUDE),
+    long: str(r.LONGITUDE),
+    contact_person: str(r.CONT_PR),
+    contact_no: str(r.MOBILE_NO),
+    // CUST_STATUS is the outlet status; BLOCK_IND is kept in source_metadata
+    // only, since no business rule consumes it yet.
+    outlet_status: str(r.CUST_STATUS),
+    source_metadata: r,
+  };
+}
+
+/**
+ * Bulk create-or-update stores from an Excel file.
+ *
+ * Two formats share this endpoint and one set of business rules:
+ *   compact          (default) — the operational store template
+ *   customer_master  — VBL's 56-column customer-master export
+ *
+ * Customer Code is the upsert key: a row whose code already exists UPDATES that
+ * store in place (its stores.id is preserved, so existing tasks and assignments
+ * keep pointing at it); a new code INSERTS. vendor_uid is no longer part of the
+ * store template — a store's vendor mapping is left exactly as it is.
+ *
+ * All-or-nothing: if any row fails validation, nothing is written at all.
  */
 export async function bulkStores(req: AuthRequest, res: Response) {
-  const { file_url } = req.body;
+  const { file_url, format } = req.body as { file_url: string; format?: string };
+  const isMaster = format === 'customer_master';
   let rows: Record<string, unknown>[];
   try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
-  const vendorByUid = new Map<string, string>();
-  for (const v of (await pool.query('SELECT id, uid FROM vendors')).rows) vendorByUid.set(String(v.uid), v.id);
-
   const failed: RowError[] = [];
-  interface V { row: number; tuple: unknown[]; uid: string | null }
-  const valid: V[] = [];
-  const seenUids = new Set<string>();
+  interface Valid { row: number; input: StoreInput }
+  const valid: Valid[] = [];
+
+  // Track in-file duplicates by both unique keys. Every occurrence is reported
+  // (not just the second), so the operator can see each row that needs fixing.
+  const codeRows = new Map<string, number[]>();
+  const uidRows = new Map<string, number[]>();
 
   for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const rowNum = i + 2;
-    try {
-      const name = str(r.name), address = str(r.address), pincode = str(r.pincode);
-      const lat = parseFloat(str(r.lat)), long = parseFloat(str(r.long));
-      if (!name || !address || !pincode) throw new Error('name, address and pincode are required');
-      if (isNaN(lat) || isNaN(long)) throw new Error('lat and long must be numbers');
+    const rowNum = i + 2; // 1-based, plus the header row
+    const raw = isMaster ? fromCustomerMaster(rows[i]) : rows[i];
+    const { input, errors } = normalizeStoreInput(raw, { requireContactEmail: !isMaster });
 
-      const uid = str(r.uid) || null;
-      if (uid) {
-        if (seenUids.has(uid)) throw new Error(`Duplicate store uid within the file: ${uid}`);
-        seenUids.add(uid);
+    if (errors.length) {
+      failed.push({ row: rowNum, reason: errors.join('; ') });
+      continue;
+    }
+    const codeKey = input.customer_code.toLowerCase();
+    const uidKey = input.uid.toLowerCase();
+    if (!codeRows.has(codeKey)) codeRows.set(codeKey, []);
+    codeRows.get(codeKey)!.push(rowNum);
+    if (!uidRows.has(uidKey)) uidRows.set(uidKey, []);
+    uidRows.get(uidKey)!.push(rowNum);
+
+    valid.push({ row: rowNum, input });
+  }
+
+  const dupeRows = new Set<number>();
+  for (const [code, rs] of codeRows) {
+    if (rs.length > 1) {
+      for (const r of rs) {
+        dupeRows.add(r);
+        failed.push({ row: r, reason: `Duplicate customer_code "${code}" in this file (also on row ${rs.filter((x) => x !== r).join(', ')})` });
       }
-      const vendorUid = str(r.vendor_uid);
-      let vendorId: string | null = null;
-      if (vendorUid) { vendorId = vendorByUid.get(vendorUid) ?? null; if (!vendorId) throw new Error(`Unknown vendor_uid "${vendorUid}"`); }
-
-      valid.push({
-        row: rowNum, uid,
-        tuple: [name, address, pincode, lat, long, uid, str(r.contact_no) || null, str(r.contact_email) || null, str(r.contact_person) || null, vendorId],
-      });
-    } catch (e) {
-      failed.push({ row: rowNum, reason: (e as Error).message || 'Unknown error' });
+    }
+  }
+  for (const [uid, rs] of uidRows) {
+    if (rs.length > 1) {
+      for (const r of rs) {
+        if (dupeRows.has(r)) continue; // already reported for a duplicate code
+        failed.push({ row: r, reason: `Duplicate uid "${uid}" in this file (also on row ${rs.filter((x) => x !== r).join(', ')})` });
+      }
     }
   }
 
-  // Existing-uid check. All-or-nothing: any failure aborts the whole import.
-  const withUid = valid.filter((v) => v.uid).map((v) => v.uid!) as string[];
-  if (withUid.length) {
-    const { rows: ex } = await pool.query('SELECT uid FROM stores WHERE uid = ANY($1)', [withUid]);
-    const existing = new Set(ex.map((x) => x.uid));
+  // Resolve each row against existing stores using the same identity rule the
+  // manual endpoints use — code and uid must not name two different stores.
+  if (valid.length && !failed.length) {
+    const lookup = await loadStoreIdentityLookup();
     for (const v of valid) {
-      if (v.uid && existing.has(v.uid)) failed.push({ row: v.row, reason: `Store UID already exists: ${v.uid}` });
+      const identity = resolveStoreIdentity(lookup, v.input.customer_code, v.input.uid);
+      if (!identity.ok) failed.push({ row: v.row, reason: identity.reason });
     }
   }
 
   if (failed.length) {
     failed.sort((a, b) => a.row - b.row);
-    res.json({ inserted: 0, failed });
+    res.json({ inserted: 0, updated: 0, failed });
+    return;
+  }
+  if (!valid.length) {
+    res.json({ inserted: 0, updated: 0, failed });
     return;
   }
 
-  let inserted = 0;
-  if (valid.length) {
-    const out = await inTransaction((client) => chunkedInsert(
-      client, 'stores',
-      ['name', 'address', 'pincode', 'lat', 'long', 'uid', 'contact_no', 'contact_email', 'contact_person', 'vendor_id'],
-      valid.map((v) => v.tuple), { returning: 'id' }
-    ));
-    inserted = out.length;
-  }
-  res.json({ inserted, failed });
+  const { created, updated } = await inTransaction((client) =>
+    bulkUpsertStores(client, valid.map((v) => v.input))
+  );
+  res.json({ inserted: created, updated, failed });
 }
 
 // ----------------------------------------------------------------------------
@@ -437,24 +559,51 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
   try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const failed: RowError[] = [];
-  interface V { row: number; email: string | null; tuple: unknown[] }
+  interface V { row: number; name: string; email: string | null; tuple: unknown[] }
   const valid: V[] = [];
   const seenEmails = new Set<string>();
+  const seenNames = new Set<string>();
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const rowNum = i + 2;
     try {
       const name = str(r.name);
       if (!name) throw new Error('name is required');
-      const email = str(r.contact_email) || null;
-      if (email) {
-        const key = email.toLowerCase();
-        if (seenEmails.has(key)) throw new Error(`Duplicate email within the file: ${email}`);
-        seenEmails.add(key);
+      // Vendor names must be unique case-insensitively, exactly as the manual
+      // Create Vendor form requires. Two vendors with the same name are
+      // indistinguishable in the console and ambiguous to a human resolving
+      // "which vendor is this task for".
+      if (seenNames.has(name.toLowerCase())) {
+        throw new Error(`Duplicate vendor name within the file: ${name}`);
       }
-      valid.push({ row: rowNum, email, tuple: [name, str(r.contact_person) || null, str(r.contact_phone) || null, email] });
+      seenNames.add(name.toLowerCase());
+      // Vendor email stays optional, but when present it must be valid — the
+      // same rule the manual Create Vendor form applies.
+      const check = validateOptionalEmail(r.contact_email, 'contact_email');
+      if (!check.ok) throw new Error(check.reason!);
+      const email = check.value;
+      if (email) {
+        if (seenEmails.has(email)) throw new Error(`Duplicate email within the file: ${email}`);
+        seenEmails.add(email);
+      }
+      valid.push({ row: rowNum, name, email, tuple: [name, str(r.contact_person) || null, str(r.contact_phone) || null, email] });
     } catch (e) {
       failed.push({ row: rowNum, reason: (e as Error).message || 'Unknown error' });
+    }
+  }
+
+  // Existing-name check (case-insensitive), batched like the email check below.
+  // Without this, bulk import could create a duplicate that the manual endpoint
+  // rejects — the two paths must enforce the same rule.
+  if (valid.length) {
+    const { rows: exName } = await pool.query(
+      'SELECT lower(name) AS n, uid FROM vendors WHERE lower(name) = ANY($1)',
+      [valid.map((v) => v.name.toLowerCase())]
+    );
+    const existingNames = new Map<string, string>(exName.map((x) => [x.n, x.uid]));
+    for (const v of valid) {
+      const uid = existingNames.get(v.name.toLowerCase());
+      if (uid) failed.push({ row: v.row, reason: `A vendor named "${v.name}" already exists (${uid})` });
     }
   }
 
@@ -478,12 +627,13 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
   }
 
   let inserted = 0;
+  let registered: { name: string; uid: string; email: string | null; person: string | null }[] = [];
   if (valid.length) {
     await inTransaction(async (client) => {
       const created = await chunkedInsert(
         client, 'vendors',
         ['name', 'contact_person', 'contact_phone', 'contact_email'],
-        valid.map((v) => v.tuple), { returning: 'id, code' }
+        valid.map((v) => v.tuple), { returning: 'id, code, name, contact_email, contact_person' }
       );
       inserted = created.length;
       // Assign VND-NNN UIDs from the auto-generated codes in one batched UPDATE.
@@ -495,7 +645,28 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
           [created.map((c) => c.id), created.map((c) => `VND-${String(c.code).padStart(3, '0')}`)]
         );
       }
+      registered = created.map((c) => ({
+        name: c.name,
+        uid: `VND-${String(c.code).padStart(3, '0')}`,
+        email: c.contact_email,
+        person: c.contact_person,
+      }));
     });
   }
-  res.json({ inserted, failed });
+
+  // Registration confirmations, after the transaction commits so no email ever
+  // announces a vendor that was rolled back. Same no-credentials content as the
+  // manual Create Vendor flow.
+  let emailed = 0;
+  if (isEmailConfigured() && registered.length) {
+    const CONC = 5;
+    const withEmail = registered.filter((v) => v.email);
+    for (let i = 0; i < withEmail.length; i += CONC) {
+      const results = await Promise.all(withEmail.slice(i, i + CONC).map((v) =>
+        sendVendorWelcomeEmail({ to: v.email!, vendorName: v.name, vendorUid: v.uid, contactPerson: v.person })
+      ));
+      emailed += results.filter(Boolean).length;
+    }
+  }
+  res.json({ inserted, emailed, failed });
 }

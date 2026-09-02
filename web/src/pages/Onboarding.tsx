@@ -82,50 +82,68 @@ function VendorForm() {
   );
 }
 
+const EMPTY_STORE = {
+  customer_code: '', uid: '', name: '', address: '', pincode: '',
+  lat: '', long: '', contact_no: '', contact_email: '', contact_person: '', outlet_status: '',
+};
+
+/**
+ * Create-or-update a store, keyed on Customer Code. There is deliberately no
+ * vendor picker here any more: a store's vendor mapping is managed separately
+ * and is never changed by this form.
+ */
 function StoreForm() {
   const s = useFormStatus();
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [f, setF] = useState({ name: '', address: '', pincode: '', lat: '', long: '', uid: '', contact_no: '', contact_email: '', contact_person: '', vendor_id: '' });
+  const [f, setF] = useState({ ...EMPTY_STORE });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
-  useEffect(() => { getVendors().then(setVendors).catch(() => {}); }, []);
   async function submit() {
     s.setErr(null); s.setOk(null);
-    if (!f.name || !f.address || !f.pincode || !f.lat || !f.long) { s.setErr('Name, address, pincode, lat, long are required'); return; }
-    if (!f.vendor_id) { s.setErr('Select the vendor this store belongs to'); return; }
+    const missing = ([
+      ['customer_code', 'Customer Code'], ['uid', 'Store UID'], ['name', 'Name'],
+      ['address', 'Address'], ['pincode', 'Pincode'], ['lat', 'Latitude'], ['long', 'Longitude'],
+      ['contact_no', 'Contact No'], ['contact_email', 'Contact Email'], ['contact_person', 'Contact Person'],
+    ] as [keyof typeof f, string][]).filter(([k]) => !f[k].trim()).map(([, label]) => label);
+    if (missing.length) { s.setErr(`Required: ${missing.join(', ')}`); return; }
     const lat = Number(f.lat), long = Number(f.long);
-    if (Number.isNaN(lat) || Number.isNaN(long)) { s.setErr('Lat/long must be numbers'); return; }
+    if (Number.isNaN(lat) || Number.isNaN(long)) { s.setErr('Latitude/Longitude must be numbers'); return; }
     s.setBusy(true);
     try {
-      await createStore({
-        name: f.name.trim(), address: f.address.trim(), pincode: f.pincode.trim(), lat, long, vendor_id: f.vendor_id,
-        uid: f.uid.trim() || undefined, contact_no: f.contact_no.trim() || undefined,
-        contact_email: f.contact_email.trim() || undefined, contact_person: f.contact_person.trim() || undefined,
+      const saved = await createStore({
+        customer_code: f.customer_code.trim(), uid: f.uid.trim(),
+        name: f.name.trim(), address: f.address.trim(), pincode: f.pincode.trim(), lat, long,
+        contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
+        contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim() || undefined,
       });
-      s.setOk(`Store "${f.name}" created`);
-      setF({ name: '', address: '', pincode: '', lat: '', long: '', uid: '', contact_no: '', contact_email: '', contact_person: '', vendor_id: '' });
+      s.setOk(saved.outcome === 'updated'
+        ? `Existing store "${saved.name}" updated (Customer Code ${saved.customer_code})`
+        : `Store "${saved.name}" created (Customer Code ${saved.customer_code})`);
+      setF({ ...EMPTY_STORE });
     } catch (e) { s.setErr(apiError(e)); } finally { s.setBusy(false); }
   }
   return (
     <Card>
-      <h3>Create Store</h3>
+      <h3>Create / Update Store</h3>
       <ErrorBanner msg={s.err} />{s.ok && <div className="banner-ok">{s.ok}</div>}
-      <label>Name</label><input value={f.name} onChange={set('name')} />
-      <label>Address</label><input value={f.address} onChange={set('address')} />
+      <p className="meta" style={{ marginTop: -4 }}>
+        Saving looks the store up by <b>Customer Code</b>: if it already exists the existing
+        record is updated in place (its tasks stay attached); otherwise a new store is created.
+      </p>
       <div className="grid2">
-        <div><label>Pincode</label><input value={f.pincode} onChange={set('pincode')} /></div>
-        <div><label>Store UID (optional)</label><input value={f.uid} onChange={set('uid')} /></div>
-        <div><label>Latitude</label><input value={f.lat} onChange={set('lat')} placeholder="19.0760" /></div>
-        <div><label>Longitude</label><input value={f.long} onChange={set('long')} placeholder="72.8777" /></div>
-        <div><label>Contact Person (optional)</label><input value={f.contact_person} onChange={set('contact_person')} /></div>
-        <div><label>Contact No (optional)</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
+        <div><label>Customer Code *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
+        <div><label>Store UID *</label><input value={f.uid} onChange={set('uid')} placeholder="e.g. 00830422" /></div>
       </div>
-      <label>Contact Email (optional)</label><input value={f.contact_email} onChange={set('contact_email')} />
-      <label>Vendor (this store belongs to)</label>
-      <select value={f.vendor_id} onChange={(e) => setF({ ...f, vendor_id: e.target.value })}>
-        <option value="">Select vendor…</option>
-        {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-      </select>
-      <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Create Store</Button>
+      <label>Name *</label><input value={f.name} onChange={set('name')} />
+      <label>Address *</label><input value={f.address} onChange={set('address')} />
+      <div className="grid2">
+        <div><label>Pincode *</label><input value={f.pincode} onChange={set('pincode')} /></div>
+        <div><label>Outlet Status</label><input value={f.outlet_status} onChange={set('outlet_status')} placeholder="e.g. ACTIVE" /></div>
+        <div><label>Latitude *</label><input value={f.lat} onChange={set('lat')} placeholder="19.0760" /></div>
+        <div><label>Longitude *</label><input value={f.long} onChange={set('long')} placeholder="72.8777" /></div>
+        <div><label>Contact Person *</label><input value={f.contact_person} onChange={set('contact_person')} /></div>
+        <div><label>Contact No *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
+      </div>
+      <label>Contact Email *</label><input value={f.contact_email} onChange={set('contact_email')} placeholder="store@example.com" />
+      <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Save Store</Button>
     </Card>
   );
 }
@@ -139,7 +157,7 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [roleOptions, setRoleOptions] = useState<Role[]>([]);
   const roles = isRjcorp ? ROLES_RJCORP : ROLES_VENDOR;
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', password: 'password123', role: roles[0], mobile: '', vendor_id: '', custom_role_id: '' });
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', role: roles[0], mobile: '', vendor_id: '', custom_role_id: '', password: '' });
   useEffect(() => { if (isRjcorp) getVendors().then(setVendors).catch(() => {}); }, [isRjcorp]);
   useEffect(() => { if (canAssignRole) getRoles().then(setRoleOptions).catch(() => {}); }, [canAssignRole]);
   const needsVendor = isRjcorp && VENDOR_SCOPED.includes(f.role);
@@ -153,17 +171,30 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
     s.setErr(null); s.setOk(null);
     if (!f.first_name || !f.last_name || !f.email) { s.setErr('First name, last name, email required'); return; }
     if (needsVendor && !f.vendor_id) { s.setErr('Select a vendor for this account'); return; }
+    // Caught here as well as server-side so the account is not created before
+    // the admin learns the password was too short to use.
+    if (f.password && f.password.length < 8) { s.setErr('Password must be at least 8 characters'); return; }
     s.setBusy(true);
     try {
       const created = await createUser({
         first_name: f.first_name.trim(), last_name: f.last_name.trim(), email: f.email.trim(),
-        password: f.password, role: f.role, mobile: f.mobile.trim() || undefined,
+        role: f.role, mobile: f.mobile.trim() || undefined,
         vendor_id: needsVendor ? f.vendor_id : undefined,
         custom_role_id: f.custom_role_id || undefined,
+        password: f.password || undefined,
       });
-      const emailNote = created.email_sent ? ' · credentials emailed' : '';
-      s.setOk((created.uid ? `Account "${f.email}" created · UID ${created.uid}` : `Account "${f.email}" created`) + emailNote);
-      setF({ ...f, first_name: '', last_name: '', email: '', mobile: '', custom_role_id: '' });
+      const { user, email_sent, password_set_by_admin } = created;
+      // Three outcomes worth telling apart. Only the last one strands the
+      // account, so only it is phrased as a warning.
+      const emailNote = password_set_by_admin
+        ? (email_sent
+            ? ' · your password was set and also emailed to them'
+            : ' · your password was set. Email could not be delivered, so pass it on yourself.')
+        : (email_sent
+            ? ' · temporary password emailed'
+            : ' · WARNING: no password was delivered and none was set, so nobody can log in as this user. Forgot Password also needs email. Delete the account and recreate it with a password.');
+      s.setOk((user.uid ? `Account "${f.email}" created · UID ${user.uid}` : `Account "${f.email}" created`) + emailNote);
+      setF({ ...f, first_name: '', last_name: '', email: '', mobile: '', custom_role_id: '', password: '' });
     } catch (e) { s.setErr(apiError(e)); } finally { s.setBusy(false); }
   }
   return (
@@ -175,10 +206,25 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
         <div><label>Last Name</label><input value={f.last_name} onChange={(e) => setF({ ...f, last_name: e.target.value })} /></div>
       </div>
       <label>Email</label><input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
-      <div className="grid2">
-        <div><label>Password</label><input value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
-        <div><label>Mobile (optional)</label><input value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} /></div>
-      </div>
+      <label>Mobile (optional)</label>
+      <input value={f.mobile} onChange={(e) => setF({ ...f, mobile: e.target.value })} />
+      {/* INTERIM — remove this field once a Resend domain is verified and
+          delivery works, at which point the generate-and-email path is enough
+          on its own and this can go back to being a note. */}
+      <label>Temporary password (optional)</label>
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={f.password}
+        onChange={(e) => setF({ ...f, password: e.target.value })}
+        placeholder="Leave blank to generate one automatically"
+      />
+      <p className="meta" style={{ marginTop: 4 }}>
+        Leave blank and a strong password is generated and emailed to this address —
+        nobody, including you, is shown it. Set one here only while email delivery is
+        unavailable: you will then need to pass it to the user yourself. Minimum 8
+        characters. It is stored encrypted and never displayed again after this.
+      </p>
       <label>Role</label>
       <select value={roleSelectValue} onChange={(e) => onRoleChange(e.target.value)}>
         {roles.map((r) => <option key={r} value={r}>{ROLE_LABELS[r as keyof typeof ROLE_LABELS] ?? r}</option>)}

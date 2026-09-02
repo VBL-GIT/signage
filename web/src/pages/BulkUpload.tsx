@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useHasPrivilege } from '../store/auth';
-import { uploadBulkFile, type BulkResult, type BulkTarget, type TaskKind } from '../api';
+import { uploadBulkFile, type BulkResult, type BulkTarget, type TaskKind, type StoreFormat } from '../api';
 import type { Privilege } from '../types';
 import { Button, Card, ErrorBanner } from '../components/ui';
 import { apiError } from '../api/client';
@@ -13,19 +13,29 @@ interface Channel {
   label: string;
   target: BulkTarget;
   kind?: TaskKind;
-  templateBase: string; // /templates/<base>_template.xlsx + _sample.xlsx
+  format?: StoreFormat;
+  templateBase?: string; // /templates/<base>_template.xlsx + _sample.xlsx
   priv: Privilege;
   hint: string;
+  note?: string;
 }
 
 // Top-level channels (each is its own tab).
 const SIMPLE: Channel[] = [
   { key: 'vendors', label: 'Vendors', target: 'vendors', templateBase: 'vendors', priv: 'vendor.manage',
     hint: 'name (required), contact_person, contact_phone, contact_email — UID is auto-generated' },
-  { key: 'stores', label: 'Stores', target: 'stores', templateBase: 'stores', priv: 'store.manage',
-    hint: 'name, address, pincode, lat, long, uid, contact_no, contact_email, contact_person, vendor_uid (which vendor the store belongs to)' },
   { key: 'users', label: 'Users', target: 'users', templateBase: 'users', priv: 'user.manage',
-    hint: 'first_name, last_name, email, role, mobile, password (optional), vendor_uid (optional)' },
+    hint: 'first_name, last_name, email, role, mobile, vendor_uid (optional) — a temporary password is generated and emailed to each user' },
+];
+
+// Stores accept two sheet layouts, as sub-tabs under one "Stores" tab.
+const STORE_SUBS: Channel[] = [
+  { key: 'compact', label: 'Store template', target: 'stores', format: 'compact', templateBase: 'stores', priv: 'store.manage',
+    hint: 'customer_code, uid, name, address, pincode, lat, long, contact_no, contact_email, contact_person, outlet_status',
+    note: 'Rows are matched on customer_code: an existing code updates that store in place (its tasks stay attached), a new code creates one. Stores keep whichever vendor they are already mapped to — vendor_uid is no longer part of this template.' },
+  { key: 'customer_master', label: 'Customer master (Speed dump)', target: 'stores', format: 'customer_master', priv: 'store.manage',
+    hint: 'VBL customer-master export, used as-is: CUST_CD, CUST_UID, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, LATITUDE, LONGITUDE, CUST_STATUS',
+    note: 'Upload the customer-master file unchanged — no template needed. CUST_CD is the Customer Code and CUST_UID becomes the Store UID; ADDR_1…ADDR_5 are combined into the address. Every other column is preserved with the store as source data. This export has no email column, so any contact email already on record is kept.' },
 ];
 
 // Task sub-channels — shown as sub-tabs under the single "Tasks" tab.
@@ -42,13 +52,20 @@ export function BulkUpload() {
   const has = useHasPrivilege();
   const simple = SIMPLE.filter((c) => has(c.priv));
   const taskSubs = TASK_SUBS.filter((c) => has(c.priv));
+  const storeSubs = STORE_SUBS.filter((c) => has(c.priv));
   const showTasks = taskSubs.length > 0;
+  const showStores = storeSubs.length > 0;
 
-  // Top-level tabs: the simple channels, plus a single "Tasks" group tab.
-  const topTabs = [...simple.map((c) => ({ key: c.key, label: c.label })), ...(showTasks ? [{ key: 'tasks', label: 'Tasks' }] : [])];
+  // Top-level tabs: the simple channels, plus grouped "Stores" and "Tasks" tabs.
+  const topTabs = [
+    ...simple.map((c) => ({ key: c.key, label: c.label })),
+    ...(showStores ? [{ key: 'stores', label: 'Stores' }] : []),
+    ...(showTasks ? [{ key: 'tasks', label: 'Tasks' }] : []),
+  ];
 
   const [tab, setTab] = useState<string>(topTabs[0]?.key ?? 'users');
   const [taskSub, setTaskSub] = useState<string>(taskSubs[0]?.key ?? 'recee');
+  const [storeSub, setStoreSub] = useState<string>(storeSubs[0]?.key ?? 'compact');
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<BulkResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -58,14 +75,16 @@ export function BulkUpload() {
 
   const channel = tab === 'tasks'
     ? (taskSubs.find((c) => c.key === taskSub) ?? taskSubs[0])
-    : simple.find((c) => c.key === tab);
+    : tab === 'stores'
+      ? (storeSubs.find((c) => c.key === storeSub) ?? storeSubs[0])
+      : simple.find((c) => c.key === tab);
 
   async function submit() {
     setErr(null); setResult(null);
     if (!channel) return;
     if (!file) { setErr('Choose an .xlsx file'); return; }
     setBusy(true);
-    try { setResult(await uploadBulkFile(channel.target, file, channel.kind)); }
+    try { setResult(await uploadBulkFile(channel.target, file, channel.kind, channel.format)); }
     catch (e) { setErr(apiError(e)); } finally { setBusy(false); }
   }
 
@@ -92,14 +111,27 @@ export function BulkUpload() {
         </div>
       )}
 
+      {tab === 'stores' && (
+        <div className="tabs" style={{ marginTop: -4, marginBottom: 4 }}>
+          {storeSubs.map((c) => (
+            <div key={c.key} className={`tab ${storeSub === c.key ? 'on' : ''}`} onClick={() => { setStoreSub(c.key); reset(); }}>
+              {c.label}
+            </div>
+          ))}
+        </div>
+      )}
+
       <Card>
         <ErrorBanner msg={err} />
         <div className="meta" style={{ marginBottom: 12 }}><b>Expected columns:</b> {channel.hint}</div>
+        {channel.note && <div className="meta" style={{ marginBottom: 12 }}>{channel.note}</div>}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-          <a className="btn secondary sm" href={`/templates/${channel.templateBase}_template.xlsx`} download>⬇ Download {channel.label} template</a>
-          <a className="meta" href={`/templates/${channel.templateBase}_sample.xlsx`} download>or a filled sample</a>
-        </div>
+        {channel.templateBase && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <a className="btn secondary sm" href={`/templates/${channel.templateBase}_template.xlsx`} download>⬇ Download {channel.label} template</a>
+            <a className="meta" href={`/templates/${channel.templateBase}_sample.xlsx`} download>or a filled sample</a>
+          </div>
+        )}
         <div className="meta" style={{ marginBottom: 12 }}>Download the template, fill in your rows, then upload the .xlsx below. All-or-nothing: if any row has a problem, nothing is imported — fix the flagged rows and re-upload.</div>
 
         <input type="file" accept=".xlsx" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); }} />
@@ -113,10 +145,22 @@ export function BulkUpload() {
                 {result.failed.map((f) => <div key={f.row}>Row {f.row}: {f.reason}</div>)}
               </div>
             ) : (
-              <div className="banner-ok">
-                ✓ {result.inserted} row(s) imported
-                {channel.target === 'users' && result.emailed != null ? ` · ${result.emailed} credential email(s) sent` : ''}
-              </div>
+              <>
+                <div className="banner-ok">
+                  ✓ {result.inserted} row(s) created
+                  {result.updated ? ` · ${result.updated} existing row(s) updated` : ''}
+                  {channel.target === 'users' && result.emailed != null ? ` · ${result.emailed} credential email(s) sent` : ''}
+                  {channel.target === 'vendors' && result.emailed != null ? ` · ${result.emailed} welcome email(s) sent` : ''}
+                </div>
+                {channel.target === 'users' && result.email_failed && result.email_failed.length > 0 && (
+                  <div className="banner-error" style={{ marginTop: 8 }}>
+                    The accounts were created, but no temporary password reached these{' '}
+                    {result.email_failed.length} address{result.email_failed.length === 1 ? '' : 'es'}.
+                    They must use “Forgot password” on the sign-in page to get in:
+                    {result.email_failed.map((e) => <div key={e}>{e}</div>)}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

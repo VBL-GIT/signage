@@ -96,10 +96,32 @@ export async function getImages(params?: {
   return data as ImagesPage;
 }
 export async function getStore(id: string) { const { data } = await api.get(`/api/stores/${id}`); return data as Store; }
-export async function createStore(body: {
+export interface StoreWritePayload {
+  customer_code: string; uid: string;
   name: string; address: string; pincode: string; lat: number; long: number;
-  uid?: string; contact_no?: string; contact_email?: string; contact_person?: string; vendor_id?: string;
-}) { const { data } = await api.post('/api/stores', body); return data as Store; }
+  contact_no: string; contact_email: string; contact_person: string;
+  outlet_status?: string;
+}
+/**
+ * Create a store, or update the existing one when its Customer Code is already
+ * known — the backend decides. `outcome` says which happened.
+ */
+export async function createStore(body: StoreWritePayload) {
+  const { data } = await api.post('/api/stores', body);
+  return data as Store & { outcome: 'created' | 'updated' };
+}
+/**
+ * Edit a store. Sending ONLY `vendor_id` is the vendor-mapping operation: the
+ * backend applies it directly without re-validating the whole record, so it
+ * also works on stores created before Customer Code existed.
+ */
+export async function updateStore(
+  id: string,
+  body: Partial<StoreWritePayload> & { vendor_id?: string | null }
+) {
+  const { data } = await api.patch(`/api/stores/${id}`, body);
+  return data as Store & { outcome: 'updated' };
+}
 export async function getBrands() { const { data } = await api.get('/api/brands'); return data as Brand[]; }
 export async function createBrand(name: string) { const { data } = await api.post('/api/brands', { name }); return data as Brand; }
 export async function getBoardingSizes() { const { data } = await api.get('/api/boarding-sizes'); return data as BoardingSize[]; }
@@ -127,10 +149,25 @@ export async function uploadPublicImage(file: File): Promise<string> {
 export async function getUsers(params?: { role?: string }) {
   const { data } = await api.get('/api/users', { params }); return data as User[];
 }
+/**
+ * Create an account. By design the server generates a temporary password and
+ * emails it to the new user; it is never returned here, so `email_sent: false`
+ * would normally mean nobody can log in as that user until they use Forgot
+ * Password.
+ *
+ * INTERIM: `password` may be supplied while outbound email is undeliverable —
+ * Forgot Password needs email too, so without it a new account is stranded.
+ * Omit it and the generate-and-email path runs unchanged. It travels in the
+ * request body only and is never echoed back.
+ */
 export async function createUser(body: {
-  first_name: string; last_name: string; email: string; password: string;
+  first_name: string; last_name: string; email: string;
   role: string; mobile?: string; vendor_id?: string; custom_role_id?: string;
-}) { const { data } = await api.post('/api/users', body); return data as User & { email_sent?: boolean }; }
+  password?: string;
+}) {
+  const { data } = await api.post('/api/users', body);
+  return data as { user: User; email_sent: boolean; password_set_by_admin?: boolean };
+}
 export async function setUserRole(id: string, custom_role_id: string | null) {
   const { data } = await api.patch(`/api/users/${id}/role`, { custom_role_id }); return data as User;
 }
@@ -154,21 +191,43 @@ export async function presignUpload(filename: string, content_type: string) {
 export type BulkTarget = 'vendors' | 'users' | 'tasks' | 'stores';
 // Tasks upload per type: `kind` fixes the task type for the whole file.
 export type TaskKind = 'recee' | 'direct' | 'direct_boarding';
-export interface BulkResult { inserted: number; emailed?: number; failed: { row: number; reason: string }[] }
-export async function bulkUpload(target: BulkTarget, file_url: string, kind?: TaskKind) {
-  const { data } = await api.post(`/api/bulk/${target}`, kind ? { file_url, kind } : { file_url });
+// Stores upload in one of two sheet layouts: the compact operational template,
+// or VBL's 56-column customer-master export.
+export type StoreFormat = 'compact' | 'customer_master';
+export interface BulkResult {
+  inserted: number;
+  /** Rows matched to an existing Customer Code and updated in place (stores). */
+  updated?: number;
+  emailed?: number;
+  /**
+   * Addresses whose credentials email could not be delivered (users channel).
+   * Their temporary password is unrecoverable — those people must use Forgot
+   * Password. Never contains a password.
+   */
+  email_failed?: string[];
+  failed: { row: number; reason: string }[];
+}
+export async function bulkUpload(
+  target: BulkTarget, file_url: string, kind?: TaskKind, format?: StoreFormat
+) {
+  const body: Record<string, unknown> = { file_url };
+  if (kind) body.kind = kind;
+  if (format) body.format = format;
+  const { data } = await api.post(`/api/bulk/${target}`, body);
   return data as BulkResult;
 }
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /** Browser file -> presign -> PUT to storage -> bulk endpoint. */
-export async function uploadBulkFile(target: BulkTarget, file: File, kind?: TaskKind): Promise<BulkResult> {
+export async function uploadBulkFile(
+  target: BulkTarget, file: File, kind?: TaskKind, format?: StoreFormat
+): Promise<BulkResult> {
   const safe = `bulk_${Date.now()}_${file.name.replace(/[^\w.\-]/g, '_')}`;
   const { upload_url, public_url } = await presignUpload(safe, XLSX_MIME);
   const put = await fetch(upload_url, { method: 'PUT', headers: { 'Content-Type': XLSX_MIME }, body: file });
   if (!put.ok) throw new Error(`Upload failed: ${put.status}`);
-  return bulkUpload(target, public_url, kind);
+  return bulkUpload(target, public_url, kind, format);
 }
 
 // ---- downloadable reports (.csv)

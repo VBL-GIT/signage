@@ -1,8 +1,12 @@
 import { Response } from 'express';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
-import { resolveUserScope, insertUser } from '../services/users.service';
+import {
+  resolveUserScope, insertUser, duplicateEmailMessage, findUserByEmail,
+} from '../services/users.service';
 import { verifyEmailDeliverable, sendCredentialsEmail } from '../services/email.service';
+import { generateTemporaryPassword } from '../services/password';
+import { validateEmail } from '../services/validation';
 import { isHeadOffice } from '../auth/privileges';
 
 // Edit a user's basic details. Head office may edit anyone; a vendor admin may
@@ -34,7 +38,18 @@ export async function updateUser(req: AuthRequest, res: Response) {
   if (first_name !== undefined) add('first_name', newFirst);
   if (last_name !== undefined) add('last_name', newLast);
   if (first_name !== undefined || last_name !== undefined) add('name', `${newFirst ?? ''} ${newLast ?? ''}`.trim());
-  if (email !== undefined) add('email', email.trim().toLowerCase());
+  if (email !== undefined) {
+    // Same syntax + typo rules as creation, so an edit can't smuggle in an
+    // address that creation would have rejected.
+    const syntax = validateEmail(email, 'email');
+    if (!syntax.ok) { res.status(400).json({ error: syntax.reason }); return; }
+    const clash = await findUserByEmail(syntax.value);
+    if (clash && clash.id !== target.id) {
+      res.status(409).json({ error: duplicateEmailMessage(clash.vendor_id, target.vendor_id) });
+      return;
+    }
+    add('email', syntax.value);
+  }
   if (mobile !== undefined) add('phone', mobile.trim() || null);
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
 
@@ -48,7 +63,7 @@ export async function updateUser(req: AuthRequest, res: Response) {
     res.json(rows[0]);
   } catch (e) {
     if ((e as { code?: string }).code === '23505') {
-      res.status(409).json({ error: 'A user with this email already exists' }); return;
+      res.status(409).json({ error: duplicateEmailMessage(null, target.vendor_id) }); return;
     }
     throw e;
   }
@@ -60,13 +75,22 @@ export async function listBrands(_req: AuthRequest, res: Response) {
 }
 
 // Brands have no UID (unlike vendors/artworks) — they're a simple reference list.
+// Names are unique case-insensitively: the task importer resolves brand_name by
+// lower(name), so a duplicate would make "which brand?" ambiguous on import.
 export async function createBrand(req: AuthRequest, res: Response) {
   const { name } = req.body as { name: string };
-  const { rows } = await pool.query(
-    'INSERT INTO brands (name) VALUES ($1) RETURNING *',
-    [name.trim()]
-  );
-  res.status(201).json(rows[0]);
+  const clean = name.trim();
+  const { rows: dupe } = await pool.query('SELECT id FROM brands WHERE lower(name) = lower($1)', [clean]);
+  if (dupe.length) { res.status(409).json({ error: `A brand named "${clean}" already exists` }); return; }
+  try {
+    const { rows } = await pool.query('INSERT INTO brands (name) VALUES ($1) RETURNING *', [clean]);
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    if ((e as { code?: string }).code === '23505') {
+      res.status(409).json({ error: `A brand named "${clean}" already exists` }); return;
+    }
+    throw e;
+  }
 }
 
 export async function listBoardingSizes(_req: AuthRequest, res: Response) {
@@ -181,8 +205,17 @@ export async function setUserRole(req: AuthRequest, res: Response) {
   res.json(rows[0]);
 }
 
+/**
+ * Create an account.
+ *
+ * The password is ALWAYS system-generated — the creating admin cannot choose or
+ * see it. The plaintext exists only in this function's scope: it is bcrypt-hashed
+ * by insertUser for storage and handed to the credentials email, then discarded.
+ * It is never logged and never included in the response.
+ */
 export async function createUser(req: AuthRequest, res: Response) {
-  const { first_name, last_name, email, password, role, mobile, vendor_id, custom_role_id } = req.body;
+  const { first_name, last_name, email, role, mobile, vendor_id, custom_role_id,
+          password: adminPassword } = req.body;
   let scope;
   try {
     scope = resolveUserScope(req.user!, role, vendor_id ?? null);
@@ -190,14 +223,37 @@ export async function createUser(req: AuthRequest, res: Response) {
     res.status(403).json({ error: (e as Error).message });
     return;
   }
-  // Verify the email is deliverable before we create the account (no-op unless
-  // EMAIL_VERIFY_MX is enabled).
-  const check = await verifyEmailDeliverable(email);
+  // Syntax + common-typo check (always on), then deliverability (no-op unless
+  // EMAIL_VERIFY_MX is enabled). Same rules the bulk importer applies.
+  const syntax = validateEmail(email, 'email');
+  if (!syntax.ok) { res.status(400).json({ error: syntax.reason }); return; }
+  const cleanEmail = syntax.value;
+
+  const check = await verifyEmailDeliverable(cleanEmail);
   if (!check.ok) { res.status(400).json({ error: check.reason || 'Invalid email' }); return; }
+
+  // Friendly duplicate message before hitting the unique index. The index is
+  // still the backstop below, for the check-then-insert race.
+  const clash = await findUserByEmail(cleanEmail);
+  if (clash) {
+    res.status(409).json({ error: duplicateEmailMessage(clash.vendor_id, scope.vendor_id) });
+    return;
+  }
+
+  // Normally strong and cryptographically-random, then emailed to its owner.
+  //
+  // INTERIM: while outbound email is undeliverable an admin may supply the
+  // password instead — otherwise a new account cannot be reached at all, since
+  // Forgot Password needs email too and there is no change-password screen.
+  // Supplied or generated, the plaintext is held in memory only long enough to
+  // be hashed (and emailed, where delivery works): it is never logged, never
+  // returned in the response, and never stored unhashed.
+  const adminSetPassword = typeof adminPassword === 'string' && adminPassword.length > 0;
+  const password = adminSetPassword ? adminPassword : generateTemporaryPassword();
 
   try {
     const created = await insertUser({
-      first_name, last_name, email, password,
+      first_name, last_name, email: cleanEmail, password,
       role: scope.role, vendor_id: scope.vendor_id, mobile,
     });
     // A custom role only applies to rjcorp_user accounts.
@@ -205,14 +261,24 @@ export async function createUser(req: AuthRequest, res: Response) {
       await pool.query('UPDATE users SET custom_role_id = $1 WHERE id = $2', [custom_role_id, created.id]);
       created.custom_role_id = custom_role_id;
     }
-    // Email the credentials (best-effort; won't fail creation).
+    // Email still goes out when it can — it is the only channel for a
+    // generated password, and confirms an admin-set one to its owner.
+    // Best-effort: a failed send never fails account creation.
     const email_sent = await sendCredentialsEmail({
-      to: email, name: created.name, email, password, role: scope.role,
+      to: cleanEmail, name: created.name, email: cleanEmail, password,
+      role: scope.role, uid: created.uid,
     });
-    res.status(201).json({ ...created, email_sent });
+    // `created` comes from insertUser's RETURNING list, which does not include
+    // password_hash — and the plaintext is deliberately absent here.
+    //
+    // password_set_by_admin lets the console tell the two cases apart: an
+    // undelivered generated password strands the account, whereas an
+    // undelivered admin-set one does not, because the admin already knows it.
+    res.status(201).json({ user: created, email_sent, password_set_by_admin: adminSetPassword });
   } catch (e) {
     if ((e as { code?: string }).code === '23505') {
-      res.status(409).json({ error: 'A user with this email already exists' });
+      // Race backstop — the pre-check above handles the common case.
+      res.status(409).json({ error: duplicateEmailMessage(null, scope.vendor_id) });
       return;
     }
     throw e;

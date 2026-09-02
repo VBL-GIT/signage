@@ -17,7 +17,8 @@ router.post('/',
     name: z.string().min(1),
     contact_person: z.string().min(1),
     contact_phone: z.string().min(1),
-    contact_email: z.string().email(),
+    // Shape only; validateEmail() in createVendor trims and validates.
+    contact_email: z.string().min(1),
   })), createVendor as any);
 
 router.patch('/:id/status',
@@ -31,7 +32,9 @@ router.patch('/:id',
     name: z.string().min(1).optional(),
     contact_person: z.string().optional(),
     contact_phone: z.string().optional(),
-    contact_email: z.string().email().or(z.literal('')).optional(),
+    // Shape only; validateEmail() in updateVendor validates a non-empty value,
+    // and an empty string still means "clear this field".
+    contact_email: z.string().optional(),
   })),
   updateVendor as any);
 

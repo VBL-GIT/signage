@@ -9,7 +9,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.varunbeverages.signage"
+      "bundleIdentifier": "com.varunbeverages.signage",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.varunbeverages.signage",
@@ -47,8 +50,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "cb5bc8d8-d753-4b2e-913e-59edfc5f8665"
+        "projectId": "ab5cfaef-b738-49fd-8f4e-1104cbd3dd09"
       }
-    }
+    },
+    "owner": "rj-mayank"
   }
 }

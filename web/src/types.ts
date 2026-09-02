@@ -51,6 +51,12 @@ export interface Artwork {
 export interface Store {
   id: string; name: string; address: string; pincode: string; lat: number; long: number;
   uid: string | null; contact_no: string | null; contact_email: string | null; contact_person: string | null;
+  /** Business key for create-vs-update on import. Null on stores predating it. */
+  customer_code: string | null;
+  /** e.g. "ACTIVE", from the customer master. Display only — drives no behaviour. */
+  outlet_status: string | null;
+  // Retained: stores keep their vendor mapping, the creation form just no
+  // longer asks for it, so newly created stores start with vendor_id null.
   vendor_id: string | null; vendor_name?: string | null;
 }
 
