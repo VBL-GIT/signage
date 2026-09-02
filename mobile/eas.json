@@ -22,7 +22,7 @@
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.signage.vbl.com"
+        "EXPO_PUBLIC_API_URL": "https://signage-api-xsab.onrender.com"
       }
     }
   },
