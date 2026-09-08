@@ -22,10 +22,10 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 SPECS = {
     "vendors": [
         ("company_name", True, "Company name. Must be unique — an existing name is rejected rather than creating a second, indistinguishable vendor."),
-        ("contact_person", False, "Primary contact person."),
-        ("contact_phone", False, "Contact phone number."),
-        ("contact_email", False, "Vendor email address. Optional, but must be valid and unique when given."),
-        ("remarks", False, "Free-text note about this vendor. Not used in any business rule; up to 2000 characters."),
+        ("contact_person", True, "Primary contact person."),
+        ("contact_phone", True, "Contact phone number."),
+        ("contact_email", True, "Vendor email address. Optional, but must be valid and unique when given."),
+        ("remarks", True, "Free-text note about this vendor. Not used in any business rule; up to 2000 characters."),
     ],
     # The customer-master ("speed dump") export, used as-is: one store template,
     # with the export's own column names and order so a file can be pasted in
@@ -34,30 +34,30 @@ SPECS = {
     # own (HOS, State_CD, CHANNEL, SUB_CHANNEL) are still imported: the whole
     # row is kept verbatim in stores.source_metadata.
     "stores": [
-        ("HOS", False, "Head of sales / territory owner. Kept as source data; no field of its own."),
-        ("State_CD", False, "State code. Kept as source data; no field of its own."),
+        ("HOS", True, "Head of sales / territory owner. Kept as source data; no field of its own."),
+        ("State_CD", True, "State code. Kept as source data; no field of its own."),
         ("Cust_CD", True, "Customer Code — the store's identifier and the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
         ("Cust_name", True, "Store name."),
-        ("CONT_PR", False, "Contact person at the outlet."),
-        ("MOBILE_NO", False, "Contact phone at the outlet."),
+        ("CONT_PR", True, "Contact person at the outlet."),
+        ("MOBILE_NO", True, "Contact phone at the outlet."),
         ("ADDR_1", True, "Address line 1. At least one ADDR_ line must have a real value."),
         ("ADDR_2", False, "Address line 2."),
         ("ADDR_3", False, "Address line 3."),
         ("ADDR_4", False, "Address line 4."),
         ("ADDR_5", False, "Address line 5. ADDR_1-ADDR_5 are joined into one address; blanks, '-' and 'NA' are dropped, and repeated lines are not duplicated."),
         ("ADDR_POSTAL", True, "PIN code."),
-        ("CHANNEL", False, "Sales channel. Kept as source data; no field of its own."),
-        ("SUB_CHANNEL", False, "Sales sub-channel. Kept as source data; no field of its own."),
+        ("CHANNEL", True, "Sales channel. Kept as source data; no field of its own."),
+        ("SUB_CHANNEL", True, "Sales sub-channel. Kept as source data; no field of its own."),
         ("LATITUDE", True, "Latitude (decimal), between -90 and 90. A file spelling this LATTITUDE is also accepted."),
         ("LONGITUDE", True, "Longitude (decimal), between -180 and 180."),
-        ("CUST_STATUS", False, "Outlet status, e.g. ACTIVE. Stored as the store's outlet status."),
+        ("CUST_STATUS", True, "Outlet status, e.g. ACTIVE. Stored as the store's outlet status."),
     ],
     "employees": [
         ("first_name", True, "Given name."),
         ("last_name", True, "Family name."),
         ("email", True, "Login email (unique)."),
         ("role", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user."),
-        ("mobile", False, "Mobile number."),
+        ("mobile", True, "Mobile number."),
         ("vendor_uid", False, "Required for employee/vendor roles. Must exist, e.g. VND-001."),
     ],
     # Tasks are split by type — one template per task type. The task type is fixed
@@ -72,8 +72,8 @@ SPECS = {
     "tasks_direct": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
         ("customer_code", False, "Optional for pamphlet distribution — this task can be area/pincode based. If given, the Customer Code must match an existing store."),
-        ("pincode", False, "Area PIN for the pamphlet distribution."),
-        ("target_pamphlet_count", False, "Target number of pamphlets to distribute."),
+        ("pincode", True, "Area PIN for the pamphlet distribution."),
+        ("target_pamphlet_count", True, "Target number of pamphlets to distribute."),
     ],
     "tasks_boarding": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
@@ -97,13 +97,14 @@ CATEGORICAL = {
 }
 
 SAMPLES = {
+    # Every column is required, so no sample cell is left blank.
     "vendors": [
         ["Sunrise Signage Pvt Ltd", "Ankit Verma", "9800000001", "ankit@sunrise.example", "Preferred vendor for West zone"],
-        ["Skyline Boards", "Rhea Kapoor", "9800000002", "rhea@skyline.example", ""],
-        ["Metro Ads Co", "", "", "contact@metroads.example", "Contact details pending"],
-        ["Bright Outdoor Media", "Faisal Ahmed", "9800000004", "faisal@brightoutdoor.example", ""],
+        ["Skyline Boards", "Rhea Kapoor", "9800000002", "rhea@skyline.example", "Boarding installs only"],
+        ["Metro Ads Co", "Imran Shaikh", "9800000003", "contact@metroads.example", "Onboarded Aug 2026"],
+        ["Bright Outdoor Media", "Faisal Ahmed", "9800000004", "faisal@brightoutdoor.example", "Covers North zone"],
         ["Prime Display Solutions", "Neha Bansal", "9800000005", "neha@primedisplay.example", "Handles boarding installs only"],
-        ["Coastal Signage Works", "", "9800000006", "", ""],
+        ["Coastal Signage Works", "Divya Nair", "9800000006", "divya@coastalsignage.example", "Coastal belt only"],
     ],
     # hos, state cd, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1..ADDR_5,
     # ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS.

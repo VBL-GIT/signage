@@ -157,6 +157,9 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
 
       const first = str(r.first_name), last = str(r.last_name);
       if (!first || !last) throw new Error('first_name and last_name are required');
+      // mobile is required; vendor_uid deliberately is not, since rjcorp_admin
+      // and rjcorp_user accounts belong to no vendor.
+      if (!str(r.mobile)) throw new Error('mobile is required');
 
       // Same syntax + typo rules as the manual Create Account form.
       const check = validateEmail(r.email, 'email');
@@ -400,6 +403,13 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
           customH = Math.round(h * INCH_TO_CM);
         }
       }
+      // Pamphlet distribution is located by area, so its template requires
+      // pincode and a target count. customer_code stays optional there — that
+      // work need not correspond to a single store.
+      if (installationType === 'direct') {
+        if (!str(r.pincode)) throw new Error('pincode is required for pamphlet distribution');
+        if (!str(r.target_pamphlet_count)) throw new Error('target_pamphlet_count is required for pamphlet distribution');
+      }
       const tpcStr = installationType === 'direct' ? str(r.target_pamphlet_count) : '';
       const tpc = tpcStr ? parseInt(tpcStr, 10) : null;
 
@@ -503,6 +513,23 @@ function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown>
 }
 
 /**
+ * Customer-master columns that must carry a value. ADDR_2..ADDR_5 are absent
+ * on purpose: real addresses are rarely five lines, and requiring them would
+ * reject most of a genuine export. Cust_CD, Cust_name, ADDR_1, ADDR_POSTAL,
+ * LATITUDE and LONGITUDE are enforced by normalizeStoreInput instead, which
+ * already reports them by their store-field names.
+ */
+const MASTER_REQUIRED: { label: string; accepts: string[] }[] = [
+  { label: 'HOS', accepts: ['HOS'] },
+  { label: 'State_CD', accepts: ['State_CD'] },
+  { label: 'CONT_PR', accepts: ['CONT_PR'] },
+  { label: 'MOBILE_NO', accepts: ['MOBILE_NO'] },
+  { label: 'CHANNEL', accepts: ['CHANNEL'] },
+  { label: 'SUB_CHANNEL', accepts: ['SUB_CHANNEL'] },
+  { label: 'CUST_STATUS', accepts: ['CUST_STATUS'] },
+];
+
+/**
  * Bulk create-or-update stores from an Excel file.
  *
  * There is one store template — the customer-master ("speed dump") layout —
@@ -547,6 +574,18 @@ export async function bulkStores(req: AuthRequest, res: Response) {
     const rowNum = i + 2; // 1-based, plus the header row
     const raw = isMaster ? fromCustomerMaster(rows[i]) : rows[i];
     const { input, errors } = normalizeStoreInput(raw, { requireContactEmail: !isMaster });
+
+    // Every template column is required except ADDR_2..ADDR_5, which real
+    // addresses routinely leave blank. Checked on the original row rather than
+    // the mapped input, because HOS, State_CD, CHANNEL and SUB_CHANNEL have no
+    // field of their own — they only reach source_metadata, so normalizeStoreInput
+    // never sees them and could not enforce them.
+    if (isMaster) {
+      const col = columnLookup(rows[i]);
+      for (const name of MASTER_REQUIRED) {
+        if (!str(col(...name.accepts))) errors.push(`${name.label} is required`);
+      }
+    }
 
     if (errors.length) {
       failed.push({ row: rowNum, reason: errors.join('; ') });
@@ -629,6 +668,16 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
       // sheets saved from the previous template keep working.
       const name = str(r.company_name) || str(r.name);
       if (!name) throw new Error('company_name is required');
+      // Every vendor column is required. Checked before the email rules so a
+      // blank cell is reported as missing rather than as a malformed address.
+      for (const [col, val] of [
+        ['contact_person', str(r.contact_person)],
+        ['contact_phone', str(r.contact_phone)],
+        ['contact_email', str(r.contact_email)],
+        ['remarks', str(r.remarks)],
+      ] as [string, string][]) {
+        if (!val) throw new Error(`${col} is required`);
+      }
       // Vendor names must be unique case-insensitively, exactly as the manual
       // Create Vendor form requires. Two vendors with the same name are
       // indistinguishable in the console and ambiguous to a human resolving
