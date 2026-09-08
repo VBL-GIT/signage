@@ -21,11 +21,11 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 # spec: (column, required?, note)
 SPECS = {
     "vendors": [
-        ("company_name", True, "Company name. Must be unique — an existing name is rejected rather than creating a second, indistinguishable vendor."),
-        ("contact_person", True, "Primary contact person."),
-        ("contact_phone", True, "Contact phone number."),
-        ("contact_email", True, "Vendor email address. Optional, but must be valid and unique when given."),
-        ("remarks", True, "Free-text note about this vendor. Not used in any business rule; up to 2000 characters."),
+        ("COMPANY_NAME", True, "Company name. Must be unique — an existing name is rejected rather than creating a second, indistinguishable vendor."),
+        ("CONTACT_PERSON", True, "Primary contact person."),
+        ("CONTACT_PHONE", True, "Contact phone number."),
+        ("CONTACT_EMAIL", True, "Vendor email address. Optional, but must be valid and unique when given."),
+        ("REMARKS", True, "Free-text note about this vendor. Not used in any business rule; up to 2000 characters."),
     ],
     # The customer-master ("speed dump") export, used as-is: one store template,
     # with the export's own column names and order so a file can be pasted in
@@ -35,9 +35,9 @@ SPECS = {
     # row is kept verbatim in stores.source_metadata.
     "stores": [
         ("HOS", True, "Head of sales / territory owner. Kept as source data; no field of its own."),
-        ("State_CD", True, "State code. Kept as source data; no field of its own."),
-        ("Cust_CD", True, "Customer Code — the store's identifier and the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
-        ("Cust_name", True, "Store name."),
+        ("STATE_CD", True, "State code. Kept as source data; no field of its own."),
+        ("CUST_CD", True, "Customer Code — the store's identifier and the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
+        ("CUST_NAME", True, "Store name."),
         ("CONT_PR", True, "Contact person at the outlet."),
         ("MOBILE_NO", True, "Contact phone at the outlet."),
         ("ADDR_1", True, "Address line 1. At least one ADDR_ line must have a real value."),
@@ -53,35 +53,35 @@ SPECS = {
         ("CUST_STATUS", True, "Outlet status, e.g. ACTIVE. A store already marked INACTIVE/Closed is frozen: its row is rejected rather than updated, unless this row sets the status back to ACTIVE."),
     ],
     "employees": [
-        ("first_name", True, "Given name."),
-        ("last_name", True, "Family name."),
-        ("email", True, "Login email (unique)."),
-        ("role", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user."),
-        ("mobile", True, "Mobile number."),
-        ("vendor_uid", True, "Vendor the account belongs to. Must exist, e.g. VND-001. RJCorp accounts belong to no vendor and cannot be created from this template — use Onboarding > Employee for those."),
+        ("FIRST_NAME", True, "Given name."),
+        ("LAST_NAME", True, "Family name."),
+        ("EMAIL", True, "Login email (unique)."),
+        ("ROLE", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user."),
+        ("MOBILE", True, "Mobile number."),
+        ("VENDOR_UID", True, "Vendor the account belongs to. Must exist, e.g. VND-001. RJCorp accounts belong to no vendor and cannot be created from this template — use Onboarding > Employee for those."),
     ],
     # Tasks are split by type — one template per task type. The task type is fixed
     # by which template you use, so no task_type / installation_type columns.
     "tasks_recee": [
-        ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("customer_code", True, "Mandatory. Customer Code of the store the recee is for (must exist)."),
+        ("VENDOR_UID", True, "Vendor the task is for (must exist), e.g. VND-001."),
+        ("CUSTOMER_CODE", True, "Mandatory. Customer Code of the store the recee is for (must exist)."),
     ],
     # Pamphlet distribution is area-based, so this is the one task template
     # where store_uid stays optional — the work is located by pincode/area and
     # may not correspond to a single physical store.
     "tasks_direct": [
-        ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("customer_code", False, "Optional for pamphlet distribution — this task can be area/pincode based. If given, the Customer Code must match an existing store."),
-        ("pincode", True, "Area PIN for the pamphlet distribution."),
-        ("target_pamphlet_count", True, "Target number of pamphlets to distribute."),
+        ("VENDOR_UID", True, "Vendor the task is for (must exist), e.g. VND-001."),
+        ("CUSTOMER_CODE", False, "Optional for pamphlet distribution — this task can be area/pincode based. If given, the Customer Code must match an existing store."),
+        ("PINCODE", True, "Area PIN for the pamphlet distribution."),
+        ("TARGET_PAMPHLET_COUNT", True, "Target number of pamphlets to distribute."),
     ],
     "tasks_boarding": [
-        ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("customer_code", True, "Mandatory. Customer Code of the store the installation is for (must exist)."),
-        ("brand_name", False, "Must match an existing brand."),
-        ("artwork_name", False, "Artwork name / code. Must be an artwork of that brand."),
-        ("width_in", False, "Board width in inches (e.g. 48). Pair with height_in."),
-        ("height_in", False, "Board height in inches (e.g. 36). Pair with width_in."),
+        ("VENDOR_UID", True, "Vendor the task is for (must exist), e.g. VND-001."),
+        ("CUSTOMER_CODE", True, "Mandatory. Customer Code of the store the installation is for (must exist)."),
+        ("BRAND_NAME", False, "Must match an existing brand."),
+        ("ARTWORK_NAME", False, "Artwork name / code. Must be an artwork of that brand."),
+        ("WIDTH_IN", False, "Board width in inches (e.g. 48). Pair with height_in."),
+        ("HEIGHT_IN", False, "Board height in inches (e.g. 36). Pair with width_in."),
     ],
 }
 
@@ -90,7 +90,7 @@ SPECS = {
 # a static list.)
 CATEGORICAL = {
     "employees": {
-        "role": ["employee", "vendor_admin", "vendor_user", "rjcorp_admin", "rjcorp_user"],
+        "ROLE": ["employee", "vendor_admin", "vendor_user", "rjcorp_admin", "rjcorp_user"],
     },
     # Task templates are type-specific (no task_type / installation_type columns),
     # so they have no categorical dropdowns.

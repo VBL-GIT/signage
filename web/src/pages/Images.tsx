@@ -26,6 +26,8 @@ export function Images() {
   const [to, setTo] = useState('');
   const [storeUid, setStoreUid] = useState('');
   const [pincode, setPincode] = useState('');
+  const [hos, setHos] = useState('');
+  const [employeeUid, setEmployeeUid] = useState('');
 
   const [images, setImages] = useState<TaskImage[]>([]);
   const [total, setTotal] = useState(0);
@@ -36,7 +38,7 @@ export function Images() {
   // Accepts explicit overrides so callers (like Clear) don't race React's async
   // state updates — reading `from`/`to`/etc directly right after setting them
   // would still see the pre-update values in this render's closure.
-  async function search(pageNum: number, overrides?: Partial<{ from: string; to: string; storeUid: string; pincode: string }>) {
+  async function search(pageNum: number, overrides?: Partial<{ from: string; to: string; storeUid: string; pincode: string; hos: string; employeeUid: string }>) {
     setErr(null);
     setLoading(true);
     try {
@@ -44,9 +46,12 @@ export function Images() {
       const t = overrides?.to ?? to;
       const su = overrides?.storeUid ?? storeUid;
       const pc = overrides?.pincode ?? pincode;
+      const hs = overrides?.hos ?? hos;
+      const eu = overrides?.employeeUid ?? employeeUid;
       const params = {
         from: f || undefined, to: t || undefined,
         store_uid: su.trim() || undefined, pincode: pc.trim() || undefined,
+        hos: hs.trim() || undefined, employee_uid: eu.trim() || undefined,
         limit: PAGE_SIZE, offset: (pageNum - 1) * PAGE_SIZE,
       };
       const { images: data, total: t2 } = await getImages(params);
@@ -86,13 +91,21 @@ export function Images() {
             <label>Pincode</label>
             <input placeholder="e.g. 400001" value={pincode} onChange={(e) => setPincode(e.target.value)} style={{ width: 120 }} />
           </div>
+          <div>
+            <label>HOS</label>
+            <input placeholder="Head of sales" value={hos} onChange={(e) => setHos(e.target.value)} style={{ width: 150 }} />
+          </div>
+          <div>
+            <label>Employee</label>
+            <input placeholder="UID or name" value={employeeUid} onChange={(e) => setEmployeeUid(e.target.value)} style={{ width: 150 }} />
+          </div>
           <Button onClick={() => search(1)} disabled={loading}>{loading ? 'Searching…' : 'Search'}</Button>
-          {(from || to || storeUid || pincode) && (
+          {(from || to || storeUid || pincode || hos || employeeUid) && (
             <Button
               variant="secondary"
               onClick={() => {
-                setFrom(''); setTo(''); setStoreUid(''); setPincode('');
-                search(1, { from: '', to: '', storeUid: '', pincode: '' });
+                setFrom(''); setTo(''); setStoreUid(''); setPincode(''); setHos(''); setEmployeeUid('');
+                search(1, { from: '', to: '', storeUid: '', pincode: '', hos: '', employeeUid: '' });
               }}
             >
               Clear

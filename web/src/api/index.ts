@@ -91,7 +91,8 @@ export async function deleteEmployee(id: string) { await api.delete(`/api/users/
 export async function getStores() { const { data } = await api.get('/api/stores'); return data as Store[]; }
 export interface ImagesPage { total: number; images: TaskImage[] }
 export async function getImages(params?: {
-  from?: string; to?: string; store_uid?: string; pincode?: string; limit?: number; offset?: number;
+  from?: string; to?: string; store_uid?: string; pincode?: string;
+  hos?: string; employee_uid?: string; limit?: number; offset?: number;
 }) {
   const { data } = await api.get('/api/images', { params });
   return data as ImagesPage;
@@ -266,3 +267,22 @@ export const downloadVendorsReport = () => downloadReport('/api/reports/vendors'
 export const downloadEmployeesReport = () => downloadReport('/api/reports/employees');
 export const downloadBrandsReport = () => downloadReport('/api/reports/brands');
 export const downloadArtworksReport = () => downloadReport('/api/reports/artworks');
+
+/**
+ * Reveal one account's current password.
+ *
+ * Authorised for RJCorp admins (any account) and vendor admins (their own
+ * vendor's staff only); anyone else gets a 403. `password` is null when none is
+ * stored — accounts predating the feature, or created while the server had no
+ * encryption key — and `reason` explains which.
+ *
+ * Deliberately a per-user call rather than a field on getUsers(): a password
+ * leaves the server only when someone asks for that specific account.
+ */
+export async function getUserPassword(id: string) {
+  const { data } = await api.get(`/api/users/${id}/password`);
+  return data as {
+    user_id: string; email: string;
+    password: string | null; available: boolean; reason: string | null;
+  };
+}

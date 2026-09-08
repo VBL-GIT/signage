@@ -10,8 +10,9 @@ import {
   isEmailConfigured, sendCredentialsEmail, sendVendorWelcomeEmail, verifyEmailDeliverable,
 } from '../services/email.service';
 import { generateTemporaryPassword } from '../services/password';
+import { sealPassword } from '../services/credential-vault';
 import { env } from '../config/env';
-import { emailDomain, joinAddressParts, validateEmail, validateOptionalEmail } from '../services/validation';
+import { columnLookup, emailDomain, joinAddressParts, validateEmail, validateOptionalEmail } from '../services/validation';
 import {
   StoreInput,
   bulkUpsertStores,
@@ -104,7 +105,9 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
 // ----------------------------------------------------------------------------
 /**
  * Bulk onboard users from an Excel file.
- * Expected columns: first_name, last_name, email, role, mobile, vendor_uid — all required.
+ * Expected columns: FIRST_NAME, LAST_NAME, EMAIL, ROLE, MOBILE, VENDOR_UID — all required.
+ * Headers are matched ignoring case and punctuation, so older lower-case
+ * sheets still import.
  * Passwords are NOT taken from the sheet — each account gets a generated one.
  */
 const ROLE_LETTER: Partial<Record<UserRole, string>> = { employee: 'E', vendor_admin: 'A', vendor_user: 'U' };
@@ -142,30 +145,31 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
     const r = rows[i];
     const rowNum = i + 2;
     try {
-      const rawRole = str(r.role);
+      const col = columnLookup(r);
+      const rawRole = str(col('ROLE'));
       if (!VALID_ROLES.includes(rawRole as UserRole)) {
         throw new Error(
           rawRole
-            ? `Invalid role "${rawRole}". Must be one of: ${VALID_ROLES.join(', ')}`
-            : `role is required. Must be one of: ${VALID_ROLES.join(', ')}`
+            ? `Invalid ROLE "${rawRole}". Must be one of: ${VALID_ROLES.join(', ')}`
+            : `ROLE is required. Must be one of: ${VALID_ROLES.join(', ')}`
         );
       }
       const role = rawRole as UserRole;
-      const vendorUid = str(r.vendor_uid);
-      // vendor_uid is required on every row. RJCorp accounts belong to no
+      const vendorUid = str(col('VENDOR_UID'));
+      // VENDOR_UID is required on every row. RJCorp accounts belong to no
       // vendor, so they cannot be created through this template — use
       // Onboarding > Employee for those.
-      if (!vendorUid) throw new Error('vendor_uid is required');
+      if (!vendorUid) throw new Error('VENDOR_UID is required');
       const bodyVendorId = vendorByUid.get(vendorUid)?.id ?? null;
-      if (!bodyVendorId) throw new Error(`Unknown vendor_uid "${vendorUid}"`);
+      if (!bodyVendorId) throw new Error(`Unknown VENDOR_UID "${vendorUid}"`);
       const scope = resolveUserScope(req.user!, role, bodyVendorId);
 
-      const first = str(r.first_name), last = str(r.last_name);
-      if (!first || !last) throw new Error('first_name and last_name are required');
-      if (!str(r.mobile)) throw new Error('mobile is required');
+      const first = str(col('FIRST_NAME')), last = str(col('LAST_NAME'));
+      if (!first || !last) throw new Error('FIRST_NAME and LAST_NAME are required');
+      if (!str(col('MOBILE'))) throw new Error('MOBILE is required');
 
       // Same syntax + typo rules as the manual Create Account form.
-      const check = validateEmail(r.email, 'email');
+      const check = validateEmail(col('EMAIL'), 'EMAIL');
       if (!check.ok) throw new Error(check.reason!);
       const email = check.value;
       if (seenEmails.has(email)) throw new Error('Duplicate email within the file');
@@ -177,7 +181,7 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
         // column in the sheet is ignored — the file must never be able to set
         // credentials, and the old `password123` fallback is gone.
         password: generateTemporaryPassword(),
-        role: scope.role, mobile: str(r.mobile) || null, vendorId: scope.vendor_id,
+        role: scope.role, mobile: str(col('MOBILE')) || null, vendorId: scope.vendor_id,
       });
     } catch (e) {
       failed.push({ row: rowNum, reason: (e as Error).message || 'Unknown error' });
@@ -241,12 +245,16 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
       const next = counters.get(k)! + 1; counters.set(k, next);
       uid = `V${vendorById.get(v.vendorId)}-${ROLE_LETTER[v.role]}${String(next).padStart(3, '0')}`;
     }
-    return [v.name, v.first, v.last, v.email, hashes[idx], v.role, v.mobile, v.vendorId, uid];
+    // Same encrypted copy the manual endpoint stores, so a bulk-created account
+    // is just as viewable as one made through the form.
+    return [v.name, v.first, v.last, v.email, hashes[idx], sealPassword(v.password),
+            v.role, v.mobile, v.vendorId, uid];
   });
 
   const out = await inTransaction((client) => chunkedInsert(
     client, 'users',
-    ['name', 'first_name', 'last_name', 'email', 'password_hash', 'role', 'phone', 'vendor_id', 'uid'],
+    ['name', 'first_name', 'last_name', 'email', 'password_hash', 'password_encrypted',
+     'role', 'phone', 'vendor_id', 'uid'],
     tuples, { returning: 'id, email, uid' }
   ));
   const inserted = out.length;
@@ -349,6 +357,10 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
     const r = rows[i];
     const rowNum = i + 2;
     try {
+      // Headers are matched ignoring case and punctuation, so VENDOR_UID,
+      // vendor_uid and "Vendor Uid" are one column and sheets saved from the
+      // older lower-case templates still import.
+      const col = columnLookup(r);
       let taskType: string;
       let installationType: string | null;
       if (fixedType) {
@@ -356,27 +368,27 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
         [taskType, installationType] = fixedType;
       } else {
         // Legacy combined template: read the type from the row.
-        taskType = str(r.task_type);
+        taskType = str(col('TASK_TYPE'));
         if (!['recee', 'installation'].includes(taskType)) throw new Error(`Invalid task_type "${taskType}"`);
         installationType = null;
         if (taskType === 'installation') {
-          installationType = str(r.installation_type);
+          installationType = str(col('INSTALLATION_TYPE'));
           if (installationType !== 'direct' && installationType !== 'direct_boarding') {
             throw new Error('installation_type must be "direct" or "direct_boarding"');
           }
         }
       }
       const isBoarding = installationType === 'direct_boarding';
-      // The template column is customer_code; store_uid is still read so
+      // The template column is CUSTOMER_CODE; STORE_UID is still read so
       // spreadsheets saved from the previous templates keep working.
-      const storeUid = str(r.customer_code) || str(r.store_uid);
+      const storeUid = str(col('CUSTOMER_CODE', 'STORE_UID'));
       if ((taskType === 'recee' || isBoarding) && !storeUid) {
-        throw new Error(`customer_code is required for ${taskType === 'recee' ? 'recee' : 'boarding installation'} tasks`);
+        throw new Error(`CUSTOMER_CODE is required for ${taskType === 'recee' ? 'recee' : 'boarding installation'} tasks`);
       }
 
-      const vendorUid = str(r.vendor_uid);
+      const vendorUid = str(col('VENDOR_UID'));
       const vendorId = vendorUid ? vendorByUid.get(vendorUid) : null;
-      if (!vendorId) throw new Error(`Unknown vendor_uid "${vendorUid}"`);
+      if (!vendorId) throw new Error(`Unknown VENDOR_UID "${vendorUid}"`);
 
       let storeId: string | null = null;
       if (storeUid) {
@@ -387,16 +399,16 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
       let brandId: string | null = null, artworkId: string | null = null;
       let customW: number | null = null, customH: number | null = null;
       if (isBoarding) {
-        const bn = str(r.brand_name);
+        const bn = str(col('BRAND_NAME'));
         if (bn) { brandId = brandByName.get(bn.toLowerCase()) ?? null; if (!brandId) throw new Error(`Unknown brand_name "${bn}"`); }
-        const an = str(r.artwork_name);
+        const an = str(col('ARTWORK_NAME'));
         if (an) {
-          if (!brandId) throw new Error('brand_name is required when artwork_name is given');
+          if (!brandId) throw new Error('BRAND_NAME is required when ARTWORK_NAME is given');
           artworkId = artworkByBrandName.get(`${brandId}|${an.toLowerCase()}`) ?? null;
           if (!artworkId) throw new Error(`Unknown artwork_name "${an}" for the given brand`);
         }
         // Board size as width_in x height_in (inches) -> stored as custom cm.
-        const wStr = str(r.width_in), hStr = str(r.height_in);
+        const wStr = str(col('WIDTH_IN')), hStr = str(col('HEIGHT_IN'));
         if (wStr || hStr) {
           const w = parseFloat(wStr), h = parseFloat(hStr);
           if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) {
@@ -410,13 +422,13 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
       // pincode and a target count. customer_code stays optional there — that
       // work need not correspond to a single store.
       if (installationType === 'direct') {
-        if (!str(r.pincode)) throw new Error('pincode is required for pamphlet distribution');
-        if (!str(r.target_pamphlet_count)) throw new Error('target_pamphlet_count is required for pamphlet distribution');
+        if (!str(col('PINCODE'))) throw new Error('PINCODE is required for pamphlet distribution');
+        if (!str(col('TARGET_PAMPHLET_COUNT'))) throw new Error('TARGET_PAMPHLET_COUNT is required for pamphlet distribution');
       }
-      const tpcStr = installationType === 'direct' ? str(r.target_pamphlet_count) : '';
+      const tpcStr = installationType === 'direct' ? str(col('TARGET_PAMPHLET_COUNT')) : '';
       const tpc = tpcStr ? parseInt(tpcStr, 10) : null;
 
-      tuples.push([taskType, installationType, vendorId, storeId, brandId, artworkId, customW, customH, str(r.pincode) || null, tpc]);
+      tuples.push([taskType, installationType, vendorId, storeId, brandId, artworkId, customW, customH, str(col('PINCODE')) || null, tpc]);
     } catch (e) {
       failed.push({ row: rowNum, reason: (e as Error).message || 'Unknown error' });
     }
@@ -455,33 +467,6 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
 }
 
 // ----------------------------------------------------------------------------
-/**
- * Look a column up without caring how the header was cased or punctuated.
- *
- * The same export is written "CUST_CD", "Cust_CD" and "cust cd" depending on
- * who produced it, so keys are normalised to lowercase alphanumerics before
- * matching: "State_CD", "state cd" and "STATECD" all collapse to "statecd".
- * Several names can be given for genuinely different spellings — notably
- * LATITUDE, which some exports spell LATTITUDE — and the first one present
- * wins.
- */
-function columnLookup(r: Record<string, unknown>) {
-  const norm = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const byNormalised = new Map<string, unknown>();
-  for (const [k, v] of Object.entries(r)) {
-    const n = norm(k);
-    // First occurrence wins, so an exact header is never shadowed by a later one.
-    if (!byNormalised.has(n)) byNormalised.set(n, v);
-  }
-  return (...names: string[]): unknown => {
-    for (const name of names) {
-      const v = byNormalised.get(norm(name));
-      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-    }
-    return '';
-  };
-}
-
 /**
  * Map one row of the customer-master ("speed dump") export onto the store
  * fields this application actually uses. Columns with no home here are not
@@ -688,19 +673,16 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
     const r = rows[i];
     const rowNum = i + 2;
     try {
-      // The template header is `company_name`; `name` is still accepted so
-      // sheets saved from the previous template keep working.
-      const name = str(r.company_name) || str(r.name);
-      if (!name) throw new Error('company_name is required');
+      // Headers are matched ignoring case and punctuation, so COMPANY_NAME,
+      // company_name and "Company Name" are one column. NAME is still accepted
+      // so sheets saved from the previous template keep working.
+      const col = columnLookup(r);
+      const name = str(col('COMPANY_NAME', 'NAME'));
+      if (!name) throw new Error('COMPANY_NAME is required');
       // Every vendor column is required. Checked before the email rules so a
       // blank cell is reported as missing rather than as a malformed address.
-      for (const [col, val] of [
-        ['contact_person', str(r.contact_person)],
-        ['contact_phone', str(r.contact_phone)],
-        ['contact_email', str(r.contact_email)],
-        ['remarks', str(r.remarks)],
-      ] as [string, string][]) {
-        if (!val) throw new Error(`${col} is required`);
+      for (const key of ['CONTACT_PERSON', 'CONTACT_PHONE', 'CONTACT_EMAIL', 'REMARKS']) {
+        if (!str(col(key))) throw new Error(`${key} is required`);
       }
       // Vendor names must be unique case-insensitively, exactly as the manual
       // Create Vendor form requires. Two vendors with the same name are
@@ -712,7 +694,7 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
       seenNames.add(name.toLowerCase());
       // Vendor email stays optional, but when present it must be valid — the
       // same rule the manual Create Vendor form applies.
-      const check = validateOptionalEmail(r.contact_email, 'contact_email');
+      const check = validateOptionalEmail(col('CONTACT_EMAIL'), 'CONTACT_EMAIL');
       if (!check.ok) throw new Error(check.reason!);
       const email = check.value;
       if (email) {
@@ -721,8 +703,8 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
       }
       valid.push({
         row: rowNum, name, email,
-        tuple: [name, str(r.contact_person) || null, str(r.contact_phone) || null, email,
-                str(r.remarks).slice(0, 2000) || null],
+        tuple: [name, str(col('CONTACT_PERSON')) || null, str(col('CONTACT_PHONE')) || null, email,
+                str(col('REMARKS')).slice(0, 2000) || null],
       });
     } catch (e) {
       failed.push({ row: rowNum, reason: (e as Error).message || 'Unknown error' });

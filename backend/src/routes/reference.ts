@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
-import { listBrands, createBrand, listBoardingSizes, listUsers, createUser, updateUser, setUserActive, setUserRole, deleteEmployee } from '../controllers/reference.controller';
+import { listBrands, createBrand, listBoardingSizes, listUsers, createUser, updateUser, setUserActive, setUserRole, deleteEmployee, getUserPassword } from '../controllers/reference.controller';
 
 const router = Router();
 router.use(authenticate);
@@ -42,6 +42,14 @@ router.post('/users',
     vendor_id: z.string().uuid().optional(),
     custom_role_id: z.string().uuid().optional(),
   })), createUser as any);
+
+// Reveal one account's password. Authorisation is inside the controller,
+// because it depends on the TARGET user (own vendor or not), which a static
+// role/privilege guard on the route cannot see. requireRole here is only a
+// cheap first gate — it is not the real check.
+router.get('/users/:id/password',
+  requireRole('rjcorp_admin', 'vendor_admin'),
+  getUserPassword as any);
 
 router.patch('/users/:id/status',
   requirePrivilege('user.status'),

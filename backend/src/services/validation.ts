@@ -166,3 +166,33 @@ export function joinAddressParts(parts: unknown[]): string {
   }
   return out.join(', ');
 }
+
+/**
+ * Look a spreadsheet column up without caring how its header was cased or
+ * punctuated.
+ *
+ * The same export is written "CUST_CD", "Cust_CD" and "cust cd" depending on
+ * who produced it, and the templates themselves moved to all-caps, so keys are
+ * normalised to lowercase alphanumerics before matching: "VENDOR_UID",
+ * "vendor_uid" and "Vendor Uid" all collapse to "vendoruid". This is what lets
+ * sheets saved from an older template keep importing.
+ *
+ * Several names can be given for genuinely different spellings — LATITUDE vs
+ * LATTITUDE, COMPANY_NAME vs the older NAME — and the first one present wins.
+ */
+export function columnLookup(r: Record<string, unknown>) {
+  const norm = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const byNormalised = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(r)) {
+    const n = norm(k);
+    // First occurrence wins, so an exact header is never shadowed by a later one.
+    if (!byNormalised.has(n)) byNormalised.set(n, v);
+  }
+  return (...names: string[]): unknown => {
+    for (const name of names) {
+      const v = byNormalised.get(norm(name));
+      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return '';
+  };
+}

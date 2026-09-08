@@ -42,6 +42,18 @@ const envSchema = z
       .transform((v) => v === 'true' || v === '1'),
     // Login URL included in the credential email. Defaults to first allowed origin.
     APP_WEB_URL: z.string().optional(),
+
+    // ---- Admin-viewable passwords (see services/credential-vault.ts) --------
+    // 32-byte key, hex or base64, that encrypts the recoverable copy of each
+    // password so an admin can read it back from the user's detail page.
+    // Generate with:
+    //   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    //
+    // Leave unset and the feature is off: nothing is stored and nothing can be
+    // read. Losing or changing the key does not lock anyone out — login checks
+    // the bcrypt hash, never this — it only makes existing stored copies
+    // unreadable.
+    CREDENTIAL_ENC_KEY: z.string().optional(),
   })
   // In production, refuse to boot on weak/short JWT secrets — this is what
   // protects every issued token, so a leaked dev value is a full compromise.

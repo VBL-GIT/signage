@@ -129,6 +129,8 @@ export interface TaskImage {
   pincode: string | null;
   vendor_name: string | null;
   employee_name: string | null;
+  employee_uid: string | null;
+  hos: string | null;
   area_label: string | null;
   brand_label: string | null;
   signage_type: SignageType | null;

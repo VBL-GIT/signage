@@ -341,13 +341,22 @@ function TaskForm() {
         placeholder="Search vendor…"
         options={vendors.map((v) => ({ value: v.id, label: v.name }))}
       />
-      <label>Store {storeRequired ? '*' : '(optional)'}</label>
+      <label>Customer Code {storeRequired ? '*' : '(optional)'}</label>
       <SearchableSelect
         value={storeId}
         onChange={setStoreId}
-        placeholder="Search store…"
-        options={stores.map((st) => ({ value: st.id, label: st.name }))}
+        placeholder="Search by Customer Code…"
+        // Customer Code leads, because it is the store's identifier and is
+        // unique — two outlets can share a name, so picking by name alone was
+        // ambiguous. The name follows it only as a human check.
+        options={stores.map((st) => ({
+          value: st.id,
+          label: st.customer_code ? `${st.customer_code} — ${st.name}` : st.name,
+        }))}
       />
+      <p className="meta" style={{ marginTop: 4 }}>
+        Stores are matched on Customer Code. Type a code to find one; the name is shown alongside to confirm.
+      </p>
       {kind === 'boarding' && (
         <>
           <label>Brand (optional)</label>

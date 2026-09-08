@@ -6,6 +6,7 @@ import {
 } from '../services/users.service';
 import { verifyEmailDeliverable, sendCredentialsEmail } from '../services/email.service';
 import { generateTemporaryPassword } from '../services/password';
+import { isVaultEnabled, openPassword } from '../services/credential-vault';
 import { validateEmail } from '../services/validation';
 import { isHeadOffice } from '../auth/privileges';
 
@@ -283,4 +284,68 @@ export async function createUser(req: AuthRequest, res: Response) {
     }
     throw e;
   }
+}
+
+/**
+ * Reveal an account's current password to an authorised admin.
+ *
+ * Visibility is hierarchical, as asked:
+ *   rjcorp_admin  — any account
+ *   vendor_admin  — only accounts belonging to their own vendor
+ *   anyone else   — refused
+ *
+ * rjcorp_user is deliberately NOT included. It is a general head-office role
+ * that can be granted through custom roles, and reading every password in the
+ * system is not something a privilege flag should be able to hand out
+ * incidentally.
+ *
+ * Answers `null` rather than an error when a password simply is not available:
+ * accounts created before this feature, or created while no encryption key was
+ * configured, have nothing stored, and a bcrypt hash cannot be reversed.
+ *
+ * Deliberately its own endpoint rather than a field on the user list — a
+ * password is fetched only when someone explicitly asks for that one account,
+ * so it never rides along in a payload that merely renders a table.
+ */
+export async function getUserPassword(req: AuthRequest, res: Response) {
+  const viewer = req.user!;
+  const { id } = req.params;
+
+  const { rows } = await pool.query(
+    'SELECT id, name, email, role, vendor_id, password_encrypted FROM users WHERE id = $1',
+    [id]
+  );
+  const target = rows[0];
+  if (!target) { res.status(404).json({ error: 'User not found' }); return; }
+
+  const isRjcorpAdmin = viewer.role === 'rjcorp_admin';
+  const isOwnVendorAdmin =
+    viewer.role === 'vendor_admin' &&
+    !!viewer.vendor_id &&
+    target.vendor_id === viewer.vendor_id;
+
+  if (!isRjcorpAdmin && !isOwnVendorAdmin) {
+    res.status(403).json({ error: 'You do not have permission to view this password' });
+    return;
+  }
+
+  // A vendor admin may read their own staff, not another vendor admin's peers
+  // at head office who happen to share a vendor_id of null.
+  if (isOwnVendorAdmin && (target.role === 'rjcorp_admin' || target.role === 'rjcorp_user')) {
+    res.status(403).json({ error: 'You do not have permission to view this password' });
+    return;
+  }
+
+  const password = openPassword(target.password_encrypted);
+  res.json({
+    user_id: target.id,
+    email: target.email,
+    password,
+    available: password !== null,
+    reason: password === null
+      ? (isVaultEnabled()
+          ? 'This account\'s password was set before it could be stored for viewing. Reset it to make one visible.'
+          : 'Password viewing is not configured on this server (CREDENTIAL_ENC_KEY is unset).')
+      : null,
+  });
 }

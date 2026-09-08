@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { sealPassword } from './credential-vault';
 import { pool } from '../config/db';
 import { UserRole } from '../types/domain';
 
@@ -111,11 +112,15 @@ export async function insertUser(input: CreateUserInput) {
   const email = input.email.trim().toLowerCase();
   const hash = await bcrypt.hash(input.password, 10);
   const uid = await generateUserUid(input.vendor_id || null, input.role);
+  // A separate encrypted copy so an admin can read the password back later.
+  // Null when the vault is not configured. Never used to authenticate — that is
+  // password_hash's job — and deliberately absent from the RETURNING list.
+  const sealed = sealPassword(input.password);
   const { rows } = await pool.query(
-    `INSERT INTO users (name, first_name, last_name, email, password_hash, role, phone, vendor_id, uid)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `INSERT INTO users (name, first_name, last_name, email, password_hash, password_encrypted, role, phone, vendor_id, uid)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      RETURNING id, name, first_name, last_name, email, role, vendor_id, uid, is_active, created_at`,
-    [name, input.first_name, input.last_name, email, hash, input.role, input.mobile || null, input.vendor_id || null, uid]
+    [name, input.first_name, input.last_name, email, hash, sealed, input.role, input.mobile || null, input.vendor_id || null, uid]
   );
   return rows[0];
 }

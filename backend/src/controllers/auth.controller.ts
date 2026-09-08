@@ -18,6 +18,7 @@ import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.ser
 
 import { getEffectivePrivileges } from '../auth/privileges';
 import { AuthRequest } from '../middleware/auth';
+import { sealPassword } from '../services/credential-vault';
 
 export async function login(req: Request, res: Response) {
   const { email, password } = req.body;
@@ -115,7 +116,13 @@ export async function resetPassword(req: Request, res: Response) {
   }
 
   const hash = await hashPassword(password);
-  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, record.user_id]);
+  // Keep the admin-viewable copy in step with the new password. Without this a
+  // reset would leave the previous one on display, which is worse than showing
+  // nothing at all.
+  await pool.query(
+    'UPDATE users SET password_hash = $1, password_encrypted = $2 WHERE id = $3',
+    [hash, sealPassword(password), record.user_id]
+  );
   await consumePasswordResetToken(record.id);
   // Force re-login everywhere — a leaked old session shouldn't survive a reset.
   await revokeAllRefreshTokens(record.user_id);

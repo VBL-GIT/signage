@@ -10,12 +10,13 @@ const MAX_LIMIT = 200;
 /**
  * Browse task photos across recee, post-recee/boarding, and direct (pamphlet)
  * installations — RJCorp head office only. Filters: date range (photo capture
- * time), store UID, and pincode (matches either the store's pincode or the
+ * time), Customer Code, pincode (matches either the store's pincode or the
  * task's own pincode, since direct/pamphlet tasks are often not tied to a
- * store and instead carry their own area pincode).
+ * store and instead carry their own area pincode), HOS, and employee.
  */
 export async function listImages(req: AuthRequest, res: Response) {
-  const { from, to, store_uid, pincode } = req.query as Record<string, string | undefined>;
+  const { from, to, store_uid, pincode, hos, employee_uid } =
+    req.query as Record<string, string | undefined>;
   const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? ''), 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(parseInt(String(req.query.offset ?? ''), 10) || 0, 0);
 
@@ -25,11 +26,31 @@ export async function listImages(req: AuthRequest, res: Response) {
 
   if (from) { conditions.push(`tsp.created_at >= $${idx++}`); params.push(from); }
   if (to) { conditions.push(`tsp.created_at < ($${idx++}::date + interval '1 day')`); params.push(to); }
-  if (store_uid) { conditions.push(`s.uid = $${idx++}`); params.push(store_uid); }
+  // Matches Customer Code first, falling back to the legacy uid so links and
+  // saved filters made before the merge keep working.
+  if (store_uid) {
+    const p = idx++;
+    conditions.push(`(lower(s.customer_code) = lower($${p}) OR lower(s.uid) = lower($${p}))`);
+    params.push(store_uid);
+  }
   if (pincode) {
     const p = idx++;
     conditions.push(`(t.pincode = $${p} OR s.pincode = $${p})`);
     params.push(pincode);
+  }
+  // HOS lives in the store's source_metadata rather than a column of its own,
+  // so it is read out of the JSON. Partial, case-insensitive: operators know
+  // the person's name, not the exact stored spelling.
+  if (hos) {
+    conditions.push(`s.source_metadata->>'HOS' ILIKE $${idx++}`);
+    params.push(`%${hos}%`);
+  }
+  // Employee UID, or their name — the UID is on screen but the name is what a
+  // person usually has to hand.
+  if (employee_uid) {
+    const p = idx++;
+    conditions.push(`(lower(e.uid) = lower($${p}) OR e.name ILIKE '%' || $${p} || '%')`);
+    params.push(employee_uid);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -42,7 +63,9 @@ export async function listImages(req: AuthRequest, res: Response) {
               tsp.area_label, tsp.brand_label, tsp.signage_type,
               sbs.label as boarding_size_label,
               t.id as task_id, t.task_type, t.installation_type, t.pincode as task_pincode,
-              s.uid as store_uid, s.name as store_name, s.pincode as store_pincode,
+              COALESCE(s.customer_code, s.uid) as store_uid, s.name as store_name, s.pincode as store_pincode,
+              s.source_metadata->>'HOS' as hos,
+              e.uid as employee_uid,
               v.name as vendor_name, e.name as employee_name
        FROM task_step_photos tsp
        JOIN task_steps ts ON ts.id = tsp.task_step_id
@@ -57,11 +80,15 @@ export async function listImages(req: AuthRequest, res: Response) {
       [...params, limit, offset]
     ),
     pool.query(
+      // The users join is required, not optional: the employee filter's WHERE
+      // clause references `e`, and without it the count query fails while the
+      // page query succeeds — a pager that breaks only when filtered.
       `SELECT COUNT(*) as total
        FROM task_step_photos tsp
        JOIN task_steps ts ON ts.id = tsp.task_step_id
        JOIN tasks t ON t.id = ts.task_id
        LEFT JOIN stores s ON s.id = t.store_id
+       LEFT JOIN users e ON e.id = t.employee_id
        ${where}`,
       params
     ),
@@ -81,6 +108,8 @@ export async function listImages(req: AuthRequest, res: Response) {
       pincode: r.task_pincode ?? r.store_pincode ?? null,
       vendor_name: r.vendor_name,
       employee_name: r.employee_name,
+      employee_uid: r.employee_uid,
+      hos: r.hos,
       area_label: r.area_label,
       brand_label: r.brand_label,
       signage_type: r.signage_type,

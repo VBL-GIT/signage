@@ -5,6 +5,7 @@ import {
   getRoles, getPrivilegeCatalog, createRole, updateRole,
   getBrands, createBrand, getArtworks, createArtwork, updateArtwork, uploadPublicImage,
   downloadVendorsReport, downloadEmployeesReport, downloadBrandsReport, downloadArtworksReport,
+  getUserPassword,
 } from '../api';
 import type { Vendor, User, Role, PrivilegeDef, Privilege, Brand, Artwork } from '../types';
 import { ROLE_LABELS } from '../types';
@@ -404,6 +405,7 @@ function Employees() {
                       <Detail label="Status" value={(u.is_active ?? true) ? 'Active' : 'Inactive'} />
                     </div>
                   )}
+                  {viewId === u.id && <PasswordDetail userId={u.id} />}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <StatusPill active={u.is_active ?? true} />
@@ -494,6 +496,54 @@ function Roles() {
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Shows an account's password to an authorised admin.
+ *
+ * Fetched on demand, never with the user list: a password should only leave the
+ * server when someone explicitly asks for that one account. Hidden again the
+ * moment the detail panel is closed, since this component unmounts with it.
+ *
+ * A 403 renders nothing at all rather than "not allowed" — a vendor admin
+ * browsing another vendor's staff has no reason to be told a password exists.
+ */
+function PasswordDetail({ userId }: { userId: string }) {
+  const [state, setState] = useState<
+    { status: 'idle' | 'loading' | 'hidden' } |
+    { status: 'shown'; password: string | null; reason: string | null }
+  >({ status: 'idle' });
+
+  async function reveal() {
+    setState({ status: 'loading' });
+    try {
+      const r = await getUserPassword(userId);
+      setState({ status: 'shown', password: r.password, reason: r.reason });
+    } catch {
+      setState({ status: 'hidden' }); // not permitted, or gone — show nothing
+    }
+  }
+
+  if (state.status === 'hidden') return null;
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+      <div className="meta" style={{ fontWeight: 600, marginBottom: 4 }}>Password</div>
+      {state.status === 'shown' ? (
+        state.password ? (
+          <code style={{ fontSize: 14, background: 'var(--bg)', padding: '4px 8px', borderRadius: 4 }}>
+            {state.password}
+          </code>
+        ) : (
+          <div className="meta">{state.reason ?? 'Not available.'}</div>
+        )
+      ) : (
+        <Button size="sm" variant="secondary" disabled={state.status === 'loading'} onClick={reveal}>
+          {state.status === 'loading' ? 'Loading…' : 'Show password'}
+        </Button>
+      )}
     </div>
   );
 }
