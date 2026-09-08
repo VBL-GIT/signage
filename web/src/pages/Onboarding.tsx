@@ -88,7 +88,7 @@ function VendorForm() {
 }
 
 const EMPTY_STORE = {
-  customer_code: '', uid: '', name: '', address: '', pincode: '',
+  customer_code: '', name: '', address: '', pincode: '',
   lat: '', long: '', contact_no: '', contact_email: '', contact_person: '', outlet_status: '',
 };
 
@@ -104,7 +104,7 @@ function StoreForm() {
   async function submit() {
     s.setErr(null); s.setOk(null);
     const missing = ([
-      ['customer_code', 'Customer Code'], ['uid', 'Store UID'], ['name', 'Name'],
+      ['customer_code', 'Customer Code'], ['name', 'Name'],
       ['address', 'Address'], ['pincode', 'Pincode'], ['lat', 'Latitude'], ['long', 'Longitude'],
       ['contact_no', 'Contact No'], ['contact_email', 'Contact Email'], ['contact_person', 'Contact Person'],
     ] as [keyof typeof f, string][]).filter(([k]) => !f[k].trim()).map(([, label]) => label);
@@ -114,7 +114,8 @@ function StoreForm() {
     s.setBusy(true);
     try {
       const saved = await createStore({
-        customer_code: f.customer_code.trim(), uid: f.uid.trim(),
+        // No uid: the server keeps it in step with the customer code.
+        customer_code: f.customer_code.trim(),
         name: f.name.trim(), address: f.address.trim(), pincode: f.pincode.trim(), lat, long,
         contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
         contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim() || undefined,
@@ -133,10 +134,8 @@ function StoreForm() {
         Saving looks the store up by <b>Customer Code</b>: if it already exists the existing
         record is updated in place (its tasks stay attached); otherwise a new store is created.
       </p>
-      <div className="grid2">
-        <div><label>Customer Code *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
-        <div><label>Store UID *</label><input value={f.uid} onChange={set('uid')} placeholder="e.g. 00830422" /></div>
-      </div>
+      <label>Customer Code *</label>
+      <input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" />
       <label>Name *</label><input value={f.name} onChange={set('name')} />
       <label>Address *</label><input value={f.address} onChange={set('address')} />
       <div className="grid2">

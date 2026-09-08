@@ -33,8 +33,7 @@ SPECS = {
     # deliberately NOT a column — a store's vendor mapping is managed
     # separately and is never changed by a store upload.
     "stores": [
-        ("customer_code", True, "Customer Code — the key that decides update vs. create. Must be unique."),
-        ("uid", True, "Store UID. Mandatory, and unique across all stores."),
+        ("customer_code", True, "Customer Code — the store's identifier and the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
         ("name", True, "Store name."),
         ("address", True, "Full store address."),
         ("pincode", True, "PIN code."),
@@ -80,20 +79,20 @@ SPECS = {
     # by which template you use, so no task_type / installation_type columns.
     "tasks_recee": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("store_uid", True, "Mandatory. Store the recee is for (must exist), e.g. ST-001."),
+        ("customer_code", True, "Mandatory. Customer Code of the store the recee is for (must exist)."),
     ],
     # Pamphlet distribution is area-based, so this is the one task template
     # where store_uid stays optional — the work is located by pincode/area and
     # may not correspond to a single physical store.
     "tasks_direct": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("store_uid", False, "Optional for pamphlet distribution — this task can be area/pincode based. If given, the store must exist, e.g. ST-001."),
+        ("customer_code", False, "Optional for pamphlet distribution — this task can be area/pincode based. If given, the Customer Code must match an existing store."),
         ("pincode", False, "Area PIN for the pamphlet distribution."),
         ("target_pamphlet_count", False, "Target number of pamphlets to distribute."),
     ],
     "tasks_boarding": [
         ("vendor_uid", True, "Vendor the task is for (must exist), e.g. VND-001."),
-        ("store_uid", True, "Mandatory. Store the installation is for (must exist), e.g. ST-001."),
+        ("customer_code", True, "Mandatory. Customer Code of the store the installation is for (must exist)."),
         ("brand_name", False, "Must match an existing brand."),
         ("artwork_name", False, "Artwork name / code. Must be an artwork of that brand."),
         ("width_in", False, "Board width in inches (e.g. 48). Pair with height_in."),
@@ -124,12 +123,12 @@ SAMPLES = {
     # customer_code, uid, name, address, pincode, lat, long,
     # contact_no, contact_email, contact_person, outlet_status
     "stores": [
-        ["YG000000026", "ST-101", "VBL Store - Andheri", "Plot 4, Andheri East", "400069", 19.1197, 72.8468, "02233440001", "andheri@vbl.example", "Store Mgr A", "ACTIVE"],
-        ["YG000000033", "ST-102", "VBL Store - Salt Lake", "Sector V, Salt Lake", "700091", 22.5697, 88.4336, "03344550002", "saltlake@vbl.example", "Store Mgr B", "ACTIVE"],
-        ["YG000000037", "ST-103", "VBL Store - Koramangala", "80 Ft Road, Koramangala", "560095", 12.9352, 77.6245, "08044550003", "koramangala@vbl.example", "Store Mgr C", "ACTIVE"],
-        ["YG000000038", "ST-104", "VBL Store - Hitech City", "Cyber Towers, Madhapur", "500081", 17.4483, 78.3915, "04044550004", "hitechcity@vbl.example", "Store Mgr D", "ACTIVE"],
-        ["YG000101108", "ST-105", "VBL Store - Vaishali Nagar", "Vaishali Nagar Main Rd", "302021", 26.9124, 75.7305, "01414550005", "vaishali@vbl.example", "Store Mgr E", "ACTIVE"],
-        ["YG000101109", "ST-106", "VBL Store - Anna Nagar", "2nd Ave, Anna Nagar", "600040", 13.0850, 80.2101, "04444550006", "annanagar@vbl.example", "Store Mgr F", "ACTIVE"],
+        ["YG000000026", "VBL Store - Andheri", "Plot 4, Andheri East", "400069", 19.1197, 72.8468, "02233440001", "andheri@vbl.example", "Store Mgr A", "ACTIVE"],
+        ["YG000000033", "VBL Store - Salt Lake", "Sector V, Salt Lake", "700091", 22.5697, 88.4336, "03344550002", "saltlake@vbl.example", "Store Mgr B", "ACTIVE"],
+        ["YG000000037", "VBL Store - Koramangala", "80 Ft Road, Koramangala", "560095", 12.9352, 77.6245, "08044550003", "koramangala@vbl.example", "Store Mgr C", "ACTIVE"],
+        ["YG000000038", "VBL Store - Hitech City", "Cyber Towers, Madhapur", "500081", 17.4483, 78.3915, "04044550004", "hitechcity@vbl.example", "Store Mgr D", "ACTIVE"],
+        ["YG000101108", "VBL Store - Vaishali Nagar", "Vaishali Nagar Main Rd", "302021", 26.9124, 75.7305, "01414550005", "vaishali@vbl.example", "Store Mgr E", "ACTIVE"],
+        ["YG000101109", "VBL Store - Anna Nagar", "2nd Ave, Anna Nagar", "600040", 13.0850, 80.2101, "04444550006", "annanagar@vbl.example", "Store Mgr F", "ACTIVE"],
     ],
     # hos, state cd, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1..ADDR_5,
     # ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS.
@@ -160,28 +159,28 @@ SAMPLES = {
         ["Kavya", "Reddy", "kavya.reddy@rjcorp.example", "rjcorp_user", "9811110006", ""],
     ],
     "tasks_recee": [
-        ["VND-001", "ST-101"],
-        ["VND-001", "ST-106"],
-        ["VND-002", "ST-104"],
-        ["VND-001", "ST-102"],
-        ["VND-002", "ST-105"],
-        ["VND-001", "ST-103"],
+        ["VND-001", "YG000000026"],
+        ["VND-001", "YG000101109"],
+        ["VND-002", "YG000000038"],
+        ["VND-001", "YG000000033"],
+        ["VND-002", "YG000101108"],
+        ["VND-001", "YG000000037"],
     ],
     "tasks_direct": [
         ["VND-001", "", "400001", 250],
         ["VND-002", "", "500081", 150],
-        ["VND-001", "ST-101", "400069", 300],
+        ["VND-001", "YG000000026", "400069", 300],
         ["VND-002", "", "302021", 200],
         ["VND-001", "", "600040", 175],
-        ["VND-002", "ST-104", "500081", 120],
+        ["VND-002", "YG000000038", "500081", 120],
     ],
     "tasks_boarding": [
-        ["VND-001", "ST-101", "BrandX", "BrandX-Festive-2026", 48, 36],
-        ["VND-001", "ST-102", "BrandX", "", 60, 40],
-        ["VND-002", "ST-104", "", "", "", ""],
-        ["VND-001", "ST-103", "BrandX", "", 36, 24],
-        ["VND-002", "ST-105", "", "", 72, 48],
-        ["VND-001", "ST-106", "BrandX", "BrandX-Festive-2026", 48, 36],
+        ["VND-001", "YG000000026", "BrandX", "BrandX-Festive-2026", 48, 36],
+        ["VND-001", "YG000000033", "BrandX", "", 60, 40],
+        ["VND-002", "YG000000038", "", "", "", ""],
+        ["VND-001", "YG000000037", "BrandX", "", 36, 24],
+        ["VND-002", "YG000101108", "", "", 72, 48],
+        ["VND-001", "YG000101109", "BrandX", "BrandX-Festive-2026", 48, 36],
     ],
 }
 

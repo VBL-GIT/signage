@@ -79,7 +79,7 @@ export function Images() {
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div>
-            <label>Store UID</label>
+            <label>Customer Code</label>
             <input placeholder="e.g. ST-014" value={storeUid} onChange={(e) => setStoreUid(e.target.value)} style={{ width: 140 }} />
           </div>
           <div>

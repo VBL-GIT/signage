@@ -130,13 +130,17 @@ export function normalizeStoreInput(
   const errors: string[] = [];
 
   const customer_code = str(raw.customer_code);
-  const uid = str(raw.uid);
+  // Customer Code is the store's single identifier: it is what the console
+  // shows and what every template collects. uid is no longer collected, but
+  // tasks, images and older spreadsheets still look stores up by it, so it is
+  // kept in step with the code rather than left empty. An explicitly supplied
+  // uid still wins, which is what preserves existing values on update.
+  const uid = str(raw.uid) || customer_code;
   const name = str(raw.name);
   const address = str(raw.address);
   const pincode = str(raw.pincode);
 
-  if (!customer_code) errors.push('customer_code is required');
-  if (!uid) errors.push('uid (Store UID) is required');
+  if (!customer_code) errors.push('customer_code (Customer Code) is required');
   if (!name) errors.push('name is required');
   if (!address) errors.push('address is required');
   if (!pincode) errors.push('pincode is required');

@@ -33,22 +33,22 @@ const SIMPLE: Channel[] = [
 // Stores accept two sheet layouts, as sub-tabs under one "Stores" tab.
 const STORE_SUBS: Channel[] = [
   { key: 'compact', label: 'Store template', target: 'stores', format: 'compact', templateBase: 'stores', priv: 'store.manage',
-    hint: 'customer_code, uid, name, address, pincode, lat, long, contact_no, contact_email, contact_person, outlet_status',
+    hint: 'customer_code, name, address, pincode, lat, long, contact_no, contact_email, contact_person, outlet_status',
     note: 'Rows are matched on customer_code: an existing code updates that store in place (its tasks stay attached), a new code creates one. Stores keep whichever vendor they are already mapped to — vendor_uid is no longer part of this template.' },
   { key: 'customer_master', label: 'Customer master (Speed dump)', target: 'stores', format: 'customer_master',
     templateBase: 'stores_customer_master', priv: 'store.manage',
     hint: 'hos, state cd, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS',
-    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical. CUST_CD is the Customer Code and, unless the file carries a CUST_UID column, it also becomes the Store UID. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". hos, state cd, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. This export has no email column, so any contact email already on record is left untouched.' },
+    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical. CUST_CD becomes the Customer Code, which is what identifies the store and decides update vs. create. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". hos, state cd, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. This export has no email column, so any contact email already on record is left untouched.' },
 ];
 
 // Task sub-channels — shown as sub-tabs under the single "Tasks" tab.
 const TASK_SUBS: Channel[] = [
   { key: 'recee', label: 'Recee', target: 'tasks', kind: 'recee', templateBase: 'tasks_recee', priv: 'task.create',
-    hint: 'vendor_uid and store_uid (both required)' },
+    hint: 'vendor_uid and customer_code (both required)' },
   { key: 'direct', label: 'Direct Installation', target: 'tasks', kind: 'direct', templateBase: 'tasks_direct', priv: 'task.create',
-    hint: 'vendor_uid (required), pincode, target_pamphlet_count, and optionally store_uid — pamphlet distribution' },
+    hint: 'vendor_uid (required), pincode, target_pamphlet_count, and optionally customer_code — pamphlet distribution' },
   { key: 'boarding', label: 'Installation w/o Recee', target: 'tasks', kind: 'direct_boarding', templateBase: 'tasks_boarding', priv: 'task.create',
-    hint: 'vendor_uid and store_uid (both required), brand_name, artwork_name (must match the brand), width_in, height_in (board size in inches)' },
+    hint: 'vendor_uid and customer_code (both required), brand_name, artwork_name (must match the brand), width_in, height_in (board size in inches)' },
 ];
 
 export function BulkUpload() {

@@ -98,7 +98,11 @@ export async function getImages(params?: {
 }
 export async function getStore(id: string) { const { data } = await api.get(`/api/stores/${id}`); return data as Store; }
 export interface StoreWritePayload {
-  customer_code: string; uid: string;
+  customer_code: string;
+  // No longer collected by any form. Sent only to carry an existing store's
+  // legacy uid through an edit unchanged; the server defaults it to the
+  // customer code when absent.
+  uid?: string;
   name: string; address: string; pincode: string; lat: number; long: number;
   contact_no: string; contact_email: string; contact_person: string;
   outlet_status?: string;

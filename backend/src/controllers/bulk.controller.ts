@@ -313,9 +313,20 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
 
   const vendorByUid = new Map<string, string>();
   for (const v of (await pool.query('SELECT id, uid FROM vendors')).rows) vendorByUid.set(String(v.uid), v.id);
+  // Stores are found by Customer Code, the identifier the templates now carry.
+  // Legacy uids are loaded into the same map so spreadsheets saved from the
+  // older store_uid templates keep resolving. Customer code is inserted second
+  // so it wins if some store's uid happens to equal another's code.
   const storeByUid = new Map<string, string>();
-  for (const s of (await pool.query('SELECT id, uid FROM stores WHERE uid IS NOT NULL')).rows) {
-    storeByUid.set(String(s.uid).toLowerCase(), s.id);
+  for (const s of (await pool.query(
+    'SELECT id, uid, customer_code FROM stores WHERE uid IS NOT NULL OR customer_code IS NOT NULL'
+  )).rows) {
+    if (s.uid) storeByUid.set(String(s.uid).toLowerCase(), s.id);
+  }
+  for (const s of (await pool.query(
+    'SELECT id, customer_code FROM stores WHERE customer_code IS NOT NULL'
+  )).rows) {
+    storeByUid.set(String(s.customer_code).toLowerCase(), s.id);
   }
   const brandByName = new Map<string, string>();
   for (const b of (await pool.query('SELECT id, name FROM brands')).rows) brandByName.set(String(b.name).toLowerCase(), b.id);
@@ -350,9 +361,11 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
         }
       }
       const isBoarding = installationType === 'direct_boarding';
-      const storeUid = str(r.store_uid);
+      // The template column is customer_code; store_uid is still read so
+      // spreadsheets saved from the previous templates keep working.
+      const storeUid = str(r.customer_code) || str(r.store_uid);
       if ((taskType === 'recee' || isBoarding) && !storeUid) {
-        throw new Error(`store_uid is required for ${taskType === 'recee' ? 'recee' : 'boarding installation'} tasks`);
+        throw new Error(`customer_code is required for ${taskType === 'recee' ? 'recee' : 'boarding installation'} tasks`);
       }
 
       const vendorUid = str(r.vendor_uid);
@@ -362,7 +375,7 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
       let storeId: string | null = null;
       if (storeUid) {
         storeId = storeByUid.get(storeUid.toLowerCase()) ?? null;
-        if (!storeId) throw new Error(`Unknown store_uid "${storeUid}"`);
+        if (!storeId) throw new Error(`Unknown Customer Code "${storeUid}"`);
       }
 
       let brandId: string | null = null, artworkId: string | null = null;

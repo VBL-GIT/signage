@@ -139,8 +139,18 @@ const baseRow = {
   check('missing customer_code rejected', errors.some((e) => e.includes('customer_code')));
 }
 {
-  const { errors } = normalizeStoreInput({ ...baseRow, uid: '' }, {});
-  check('missing uid rejected', errors.some((e) => e.includes('uid')));
+  // Customer Code is now the store's single identifier. uid is no longer
+  // collected: an omitted one defaults to the customer code rather than being
+  // an error, so tasks and images that still resolve stores by uid keep working.
+  const { input, errors } = normalizeStoreInput({ ...baseRow, uid: '' }, {});
+  check('missing uid is NOT an error any more', !errors.some((e) => e.includes('uid')), errors.join('; '));
+  check('omitted uid defaults to the customer code', input.uid === baseRow.customer_code, input.uid);
+}
+{
+  // An explicitly supplied uid still wins — that is what carries an existing
+  // store's legacy uid through an edit unchanged.
+  const { input } = normalizeStoreInput({ ...baseRow, uid: 'LEGACY-1' }, {});
+  check('an explicit uid is preserved', input.uid === 'LEGACY-1', input.uid);
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: 'abc' }, {});

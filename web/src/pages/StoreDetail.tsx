@@ -19,7 +19,7 @@ function taskLabel(t: Task) {
 type Kind = 'recee' | 'boarding' | 'direct';
 
 /**
- * Edit an existing store. Customer Code and Store UID are editable but must
+ * Edit an existing store. Customer Code is editable but must
  * stay unique — the backend refuses a change that would collide with another
  * store rather than merging the two records.
  */
@@ -48,7 +48,12 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
     setBusy(true);
     try {
       const saved = await updateStore(store.id, {
-        customer_code: f.customer_code.trim(), uid: f.uid.trim(), name: f.name.trim(),
+        customer_code: f.customer_code.trim(),
+        // Carry the store's existing uid through untouched — tasks and images
+        // still resolve stores by it. Omitted when the store has none, in which
+        // case the server keeps it in step with the customer code.
+        uid: f.uid.trim() || undefined,
+        name: f.name.trim(),
         address: f.address.trim(), pincode: f.pincode.trim(), lat, long,
         contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
         contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim(),
@@ -63,7 +68,7 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
       <ErrorBanner msg={err} />
       <div className="grid2">
         <div><label>Customer Code *</label><input value={f.customer_code} onChange={set('customer_code')} /></div>
-        <div><label>Store UID *</label><input value={f.uid} onChange={set('uid')} /></div>
+        
       </div>
       <label>Name *</label><input value={f.name} onChange={set('name')} />
       <label>Address *</label><input value={f.address} onChange={set('address')} />
@@ -207,7 +212,7 @@ export function StoreDetail() {
       <Card>
         <div className="meta">{store.address} · {store.pincode}</div>
         {store.customer_code && <div className="meta">Customer Code: <b>{store.customer_code}</b></div>}
-        {store.uid && <div className="meta">Store UID: {store.uid}</div>}
+        
         {store.outlet_status && <div className="meta">Outlet Status: {store.outlet_status}</div>}
         <div className="meta">Vendor: {store.vendor_name ?? <span style={{ color: 'var(--danger)' }}>Not mapped</span>}</div>
         {store.contact_person && <div className="meta">Contact: {store.contact_person}{store.contact_no ? ` · ${store.contact_no}` : ''}</div>}

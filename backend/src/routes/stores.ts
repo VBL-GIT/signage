@@ -17,11 +17,13 @@ router.use(authenticate);
 router.get('/', listStores as any);
 router.get('/:id', getStore as any);
 router.post('/', requirePrivilege('store.manage'), validate(z.object({
-  // Customer Code and Store UID are both mandatory for new stores. Existing
-  // rows predating them stay valid — the requirement is enforced here, at the
-  // API layer, rather than as a NOT NULL that legacy data would fail.
+  // Customer Code is the store's single identifier and is mandatory for new
+  // stores. Enforced here, at the API layer, rather than as a NOT NULL that
+  // legacy rows predating the column would have failed.
   customer_code: z.string().min(1),
-  uid: z.string().min(1),
+  // No longer collected: normalizeStoreInput defaults it to the customer code.
+  // Still accepted so an older client or spreadsheet can set it explicitly.
+  uid: z.string().min(1).optional(),
   name: z.string().min(1),
   address: z.string().min(1),
   pincode: z.string().min(1),
