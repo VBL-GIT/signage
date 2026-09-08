@@ -1,13 +1,13 @@
 import { Pool, PoolClient } from 'pg';
 import { pool } from '../config/db';
-import { str, validateOptionalEmail } from './validation';
+import { str, validateOptionalEmail, joinAddressParts } from './validation';
 
 /** Anything we can run a query on — the pool, or a client inside a transaction. */
 type Queryable = Pool | PoolClient;
 
 export const STORE_COLUMNS =
   'id, uid, customer_code, name, address, pincode, lat, long, contact_no, contact_email, ' +
-  'contact_person, outlet_status, vendor_id, created_at, updated_at';
+  'contact_person, outlet_status, source_metadata, vendor_id, created_at, updated_at';
 
 export interface StoreInput {
   customer_code: string;
@@ -115,6 +115,14 @@ export interface NormalizedStore {
 }
 
 /**
+ * Columns that carry no store field of their own. They are operational context
+ * from the customer master, kept with the store in source_metadata so nothing
+ * from the source row is lost, and required because the store template requires
+ * them — the onboarding form collects exactly the same set.
+ */
+export const METADATA_COLUMNS = ['HOS', 'State_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
+
+/**
  * Validate + normalise one store payload (an API body or a spreadsheet row).
  * Collects ALL problems rather than throwing on the first, so a bulk row can
  * report everything wrong with it in a single pass.
@@ -122,12 +130,23 @@ export interface NormalizedStore {
  * `requireContactEmail` is false for the customer-master channel: that export
  * has no email column at all, so demanding one would make the whole file
  * unimportable.
+ *
+ * `requireMetadata` enforces HOS / State_CD / CHANNEL / SUB_CHANNEL. Both the
+ * store form and the store template collect them, so both pass it — this is
+ * what stops the two drifting apart again.
  */
 export function normalizeStoreInput(
   raw: Record<string, unknown>,
-  opts: { requireContactEmail?: boolean } = {}
+  opts: { requireContactEmail?: boolean; requireMetadata?: boolean } = {}
 ): NormalizedStore {
   const errors: string[] = [];
+
+  if (opts.requireMetadata) {
+    for (const key of METADATA_COLUMNS) {
+      const meta = (raw.source_metadata ?? {}) as Record<string, unknown>;
+      if (!str(raw[key]) && !str(meta[key])) errors.push(`${key} is required`);
+    }
+  }
 
   const customer_code = str(raw.customer_code);
   // Customer Code is the store's single identifier: it is what the console
@@ -137,12 +156,16 @@ export function normalizeStoreInput(
   // uid still wins, which is what preserves existing values on update.
   const uid = str(raw.uid) || customer_code;
   const name = str(raw.name);
-  const address = str(raw.address);
+  // The store form and the store template both supply the address as
+  // ADDR_1..ADDR_5, so they are joined here rather than in either caller. A
+  // pre-joined `address` still wins, which is what the bulk mapper passes.
+  const address = str(raw.address) ||
+    joinAddressParts([raw.ADDR_1, raw.ADDR_2, raw.ADDR_3, raw.ADDR_4, raw.ADDR_5]);
   const pincode = str(raw.pincode);
 
   if (!customer_code) errors.push('customer_code (Customer Code) is required');
   if (!name) errors.push('name is required');
-  if (!address) errors.push('address is required');
+  if (!address) errors.push('address (ADDR_1) is required');
   if (!pincode) errors.push('pincode is required');
 
   const lat = parseFloat(str(raw.lat));
@@ -176,6 +199,18 @@ export function normalizeStoreInput(
   if (raw.vendor_id !== undefined) input.vendor_id = (raw.vendor_id as string) || null;
   if (raw.source_metadata !== undefined) {
     input.source_metadata = raw.source_metadata as Record<string, unknown> | null;
+  } else {
+    // The store form sends HOS / State_CD / CHANNEL / SUB_CHANNEL as ordinary
+    // fields; the bulk mapper sends the whole sheet row as source_metadata.
+    // Collect the form's version here so both channels persist the same
+    // context. Left unset when none were supplied, so an update that omits
+    // them does not wipe what is already stored.
+    const collected: Record<string, unknown> = {};
+    for (const key of METADATA_COLUMNS) {
+      const v = str(raw[key]);
+      if (v) collected[key] = v;
+    }
+    if (Object.keys(collected).length) input.source_metadata = collected;
   }
 
   return { input, errors };

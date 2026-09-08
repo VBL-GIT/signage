@@ -103,9 +103,15 @@ export interface StoreWritePayload {
   // legacy uid through an edit unchanged; the server defaults it to the
   // customer code when absent.
   uid?: string;
-  name: string; address: string; pincode: string; lat: number; long: number;
+  name: string; pincode: string; lat: number; long: number;
   contact_no: string; contact_email: string; contact_person: string;
   outlet_status?: string;
+  // The address is sent as parts, matching the bulk template; the server joins
+  // them. `address` remains accepted for older callers that pre-join it.
+  address?: string;
+  ADDR_1?: string; ADDR_2?: string; ADDR_3?: string; ADDR_4?: string; ADDR_5?: string;
+  // No store column of their own — the server files these into source_metadata.
+  HOS?: string; State_CD?: string; CHANNEL?: string; SUB_CHANNEL?: string;
 }
 /**
  * Create a store, or update the existing one when its Customer Code is already

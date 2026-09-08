@@ -56,6 +56,8 @@ export interface Store {
   customer_code: string | null;
   /** e.g. "ACTIVE", from the customer master. Display only — drives no behaviour. */
   outlet_status: string | null;
+  /** HOS / State_CD / CHANNEL / SUB_CHANNEL and any other source columns. */
+  source_metadata: Record<string, unknown> | null;
   // Retained: stores keep their vendor mapping, the creation form just no
   // longer asks for it, so newly created stores start with vendor_id null.
   vendor_id: string | null; vendor_name?: string | null;

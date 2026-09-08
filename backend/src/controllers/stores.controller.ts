@@ -69,7 +69,7 @@ export async function getStore(req: AuthRequest, res: Response) {
  * create. Same rule as the bulk importer, via the same service.
  */
 export async function createStore(req: AuthRequest, res: Response) {
-  const { input, errors } = normalizeStoreInput(req.body, { requireContactEmail: true });
+  const { input, errors } = normalizeStoreInput(req.body, { requireContactEmail: true, requireMetadata: true });
   if (errors.length) {
     res.status(400).json({ error: errors[0], details: errors });
     return;
@@ -147,10 +147,14 @@ export async function updateStore(req: AuthRequest, res: Response) {
     contact_email: existing.contact_email,
     contact_person: existing.contact_person,
     outlet_status: existing.outlet_status,
+    // Carry the stored context columns through, so an edit that does not touch
+    // them satisfies the same requirement the create path applies rather than
+    // failing on values the caller never intended to change.
+    source_metadata: existing.source_metadata,
     ...req.body,
   };
 
-  const { input, errors } = normalizeStoreInput(merged, { requireContactEmail: true });
+  const { input, errors } = normalizeStoreInput(merged, { requireContactEmail: true, requireMetadata: true });
   if (errors.length) {
     res.status(400).json({ error: errors[0], details: errors });
     return;

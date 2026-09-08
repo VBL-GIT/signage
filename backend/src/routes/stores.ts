@@ -25,7 +25,21 @@ router.post('/', requirePrivilege('store.manage'), validate(z.object({
   // Still accepted so an older client or spreadsheet can set it explicitly.
   uid: z.string().min(1).optional(),
   name: z.string().min(1),
-  address: z.string().min(1),
+  address: z.string().min(1).optional(),
+  // The store form collects the same columns as the store template, so the
+  // address arrives as ADDR_1..ADDR_5 and the four context columns as their
+  // own fields. ADDR_2..ADDR_5 stay optional: real addresses are rarely five
+  // lines. normalizeStoreInput joins the parts and files the context columns
+  // into source_metadata.
+  ADDR_1: z.string().optional(),
+  ADDR_2: z.string().optional(),
+  ADDR_3: z.string().optional(),
+  ADDR_4: z.string().optional(),
+  ADDR_5: z.string().optional(),
+  HOS: z.string().optional(),
+  State_CD: z.string().optional(),
+  CHANNEL: z.string().optional(),
+  SUB_CHANNEL: z.string().optional(),
   pincode: z.string().min(1),
   lat: coord,
   long: coord,
@@ -43,6 +57,20 @@ router.patch('/:id', requirePrivilege('store.manage'), validate(z.object({
   uid: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   address: z.string().min(1).optional(),
+  // The store form collects the same columns as the store template, so the
+  // address arrives as ADDR_1..ADDR_5 and the four context columns as their
+  // own fields. ADDR_2..ADDR_5 stay optional: real addresses are rarely five
+  // lines. normalizeStoreInput joins the parts and files the context columns
+  // into source_metadata.
+  ADDR_1: z.string().optional(),
+  ADDR_2: z.string().optional(),
+  ADDR_3: z.string().optional(),
+  ADDR_4: z.string().optional(),
+  ADDR_5: z.string().optional(),
+  HOS: z.string().optional(),
+  State_CD: z.string().optional(),
+  CHANNEL: z.string().optional(),
+  SUB_CHANNEL: z.string().optional(),
   pincode: z.string().min(1).optional(),
   lat: coord.optional(),
   long: coord.optional(),

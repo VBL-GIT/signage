@@ -36,6 +36,14 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
     contact_email: store.contact_email ?? '',
     contact_person: store.contact_person ?? '',
     outlet_status: store.outlet_status ?? '',
+    // Context columns from the customer master. They live in source_metadata
+    // rather than in columns of their own, and are prefilled from it — blank on
+    // stores imported before they were collected, which must then be filled in
+    // before the store can be saved.
+    HOS: String((store.source_metadata as Record<string, unknown> | null)?.HOS ?? ''),
+    State_CD: String((store.source_metadata as Record<string, unknown> | null)?.State_CD ?? ''),
+    CHANNEL: String((store.source_metadata as Record<string, unknown> | null)?.CHANNEL ?? ''),
+    SUB_CHANNEL: String((store.source_metadata as Record<string, unknown> | null)?.SUB_CHANNEL ?? ''),
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const [err, setErr] = useState<string | null>(null);
@@ -57,6 +65,8 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
         address: f.address.trim(), pincode: f.pincode.trim(), lat, long,
         contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
         contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim(),
+        HOS: f.HOS.trim(), State_CD: f.State_CD.trim(),
+        CHANNEL: f.CHANNEL.trim(), SUB_CHANNEL: f.SUB_CHANNEL.trim(),
       });
       onSaved(saved);
     } catch (e) { setErr(apiError(e)); } finally { setBusy(false); }
@@ -67,14 +77,17 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
       <h3>Edit store</h3>
       <ErrorBanner msg={err} />
       <div className="grid2">
+        <div><label>HOS *</label><input value={f.HOS} onChange={set('HOS')} /></div>
+        <div><label>State_CD *</label><input value={f.State_CD} onChange={set('State_CD')} /></div>
         <div><label>Customer Code *</label><input value={f.customer_code} onChange={set('customer_code')} /></div>
-        
+        <div><label>CUST_STATUS *</label><input value={f.outlet_status} onChange={set('outlet_status')} /></div>
+        <div><label>CHANNEL *</label><input value={f.CHANNEL} onChange={set('CHANNEL')} /></div>
+        <div><label>SUB_CHANNEL *</label><input value={f.SUB_CHANNEL} onChange={set('SUB_CHANNEL')} /></div>
       </div>
       <label>Name *</label><input value={f.name} onChange={set('name')} />
       <label>Address *</label><input value={f.address} onChange={set('address')} />
       <div className="grid2">
         <div><label>Pincode *</label><input value={f.pincode} onChange={set('pincode')} /></div>
-        <div><label>Outlet Status</label><input value={f.outlet_status} onChange={set('outlet_status')} /></div>
         <div><label>Latitude *</label><input value={f.lat} onChange={set('lat')} /></div>
         <div><label>Longitude *</label><input value={f.long} onChange={set('long')} /></div>
         <div><label>Contact Person *</label><input value={f.contact_person} onChange={set('contact_person')} /></div>

@@ -87,9 +87,17 @@ function VendorForm() {
   );
 }
 
+// Field-for-field the store bulk template, in its order, so the two channels
+// ask for exactly the same thing. ADDR_2..ADDR_5 are the only optional ones —
+// real addresses are rarely five lines. contact_email is the one extra: the
+// customer-master export has no email column, but a store record holds one and
+// this is the only place it can be set.
 const EMPTY_STORE = {
-  customer_code: '', name: '', address: '', pincode: '',
-  lat: '', long: '', contact_no: '', contact_email: '', contact_person: '', outlet_status: '',
+  HOS: '', State_CD: '', customer_code: '', name: '',
+  contact_person: '', contact_no: '',
+  ADDR_1: '', ADDR_2: '', ADDR_3: '', ADDR_4: '', ADDR_5: '',
+  pincode: '', CHANNEL: '', SUB_CHANNEL: '',
+  lat: '', long: '', outlet_status: '', contact_email: '',
 };
 
 /**
@@ -103,10 +111,13 @@ function StoreForm() {
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   async function submit() {
     s.setErr(null); s.setOk(null);
+    // Same required set the template enforces; only ADDR_2..ADDR_5 may be blank.
     const missing = ([
-      ['customer_code', 'Customer Code'], ['name', 'Name'],
-      ['address', 'Address'], ['pincode', 'Pincode'], ['lat', 'Latitude'], ['long', 'Longitude'],
-      ['contact_no', 'Contact No'], ['contact_email', 'Contact Email'], ['contact_person', 'Contact Person'],
+      ['HOS', 'HOS'], ['State_CD', 'State_CD'], ['customer_code', 'Customer Code'], ['name', 'Name'],
+      ['contact_person', 'CONT_PR'], ['contact_no', 'MOBILE_NO'], ['ADDR_1', 'ADDR_1'],
+      ['pincode', 'ADDR_POSTAL'], ['CHANNEL', 'CHANNEL'], ['SUB_CHANNEL', 'SUB_CHANNEL'],
+      ['lat', 'LATITUDE'], ['long', 'LONGITUDE'], ['outlet_status', 'CUST_STATUS'],
+      ['contact_email', 'Contact Email'],
     ] as [keyof typeof f, string][]).filter(([k]) => !f[k].trim()).map(([, label]) => label);
     if (missing.length) { s.setErr(`Required: ${missing.join(', ')}`); return; }
     const lat = Number(f.lat), long = Number(f.long);
@@ -116,9 +127,15 @@ function StoreForm() {
       const saved = await createStore({
         // No uid: the server keeps it in step with the customer code.
         customer_code: f.customer_code.trim(),
-        name: f.name.trim(), address: f.address.trim(), pincode: f.pincode.trim(), lat, long,
+        name: f.name.trim(), pincode: f.pincode.trim(), lat, long,
+        // Sent as parts, exactly like the template — the server joins them and
+        // drops blanks, so the form and an upload produce the same address.
+        ADDR_1: f.ADDR_1.trim(), ADDR_2: f.ADDR_2.trim(), ADDR_3: f.ADDR_3.trim(),
+        ADDR_4: f.ADDR_4.trim(), ADDR_5: f.ADDR_5.trim(),
+        HOS: f.HOS.trim(), State_CD: f.State_CD.trim(),
+        CHANNEL: f.CHANNEL.trim(), SUB_CHANNEL: f.SUB_CHANNEL.trim(),
         contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
-        contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim() || undefined,
+        contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim(),
       });
       s.setOk(saved.outcome === 'updated'
         ? `Existing store "${saved.name}" updated (Customer Code ${saved.customer_code})`
@@ -134,19 +151,36 @@ function StoreForm() {
         Saving looks the store up by <b>Customer Code</b>: if it already exists the existing
         record is updated in place (its tasks stay attached); otherwise a new store is created.
       </p>
-      <label>Customer Code *</label>
-      <input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" />
-      <label>Name *</label><input value={f.name} onChange={set('name')} />
-      <label>Address *</label><input value={f.address} onChange={set('address')} />
       <div className="grid2">
-        <div><label>Pincode *</label><input value={f.pincode} onChange={set('pincode')} /></div>
-        <div><label>Outlet Status</label><input value={f.outlet_status} onChange={set('outlet_status')} placeholder="e.g. ACTIVE" /></div>
-        <div><label>Latitude *</label><input value={f.lat} onChange={set('lat')} placeholder="19.0760" /></div>
-        <div><label>Longitude *</label><input value={f.long} onChange={set('long')} placeholder="72.8777" /></div>
-        <div><label>Contact Person *</label><input value={f.contact_person} onChange={set('contact_person')} /></div>
-        <div><label>Contact No *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
+        <div><label>HOS *</label><input value={f.HOS} onChange={set('HOS')} placeholder="Head of sales" /></div>
+        <div><label>State_CD *</label><input value={f.State_CD} onChange={set('State_CD')} placeholder="e.g. MH" /></div>
+        <div><label>Cust_CD (Customer Code) *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
+        <div><label>Cust_name *</label><input value={f.name} onChange={set('name')} /></div>
+        <div><label>CONT_PR *</label><input value={f.contact_person} onChange={set('contact_person')} placeholder="Contact person" /></div>
+        <div><label>MOBILE_NO *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
+      </div>
+      <label>ADDR_1 *</label><input value={f.ADDR_1} onChange={set('ADDR_1')} />
+      <div className="grid2">
+        <div><label>ADDR_2</label><input value={f.ADDR_2} onChange={set('ADDR_2')} /></div>
+        <div><label>ADDR_3</label><input value={f.ADDR_3} onChange={set('ADDR_3')} /></div>
+        <div><label>ADDR_4</label><input value={f.ADDR_4} onChange={set('ADDR_4')} /></div>
+        <div><label>ADDR_5</label><input value={f.ADDR_5} onChange={set('ADDR_5')} /></div>
+      </div>
+      <div className="grid2">
+        <div><label>ADDR_POSTAL (Pincode) *</label><input value={f.pincode} onChange={set('pincode')} /></div>
+        <div><label>CUST_STATUS *</label><input value={f.outlet_status} onChange={set('outlet_status')} placeholder="e.g. ACTIVE" /></div>
+        <div><label>CHANNEL *</label><input value={f.CHANNEL} onChange={set('CHANNEL')} placeholder="e.g. GT" /></div>
+        <div><label>SUB_CHANNEL *</label><input value={f.SUB_CHANNEL} onChange={set('SUB_CHANNEL')} placeholder="e.g. Grocery" /></div>
+        <div><label>LATITUDE *</label><input value={f.lat} onChange={set('lat')} placeholder="19.0760" /></div>
+        <div><label>LONGITUDE *</label><input value={f.long} onChange={set('long')} placeholder="72.8777" /></div>
       </div>
       <label>Contact Email *</label><input value={f.contact_email} onChange={set('contact_email')} placeholder="store@example.com" />
+      <p className="meta" style={{ marginTop: 4 }}>
+        These are the same columns as the Stores bulk template, in the same order.
+        ADDR_1–ADDR_5 are joined into one address; only ADDR_2–ADDR_5 may be left blank.
+        Contact Email is the one extra — the customer-master export has no email column,
+        so this form is the only place it can be set.
+      </p>
       <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Save Store</Button>
     </Card>
   );

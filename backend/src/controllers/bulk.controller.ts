@@ -573,7 +573,7 @@ export async function bulkStores(req: AuthRequest, res: Response) {
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2; // 1-based, plus the header row
     const raw = isMaster ? fromCustomerMaster(rows[i]) : rows[i];
-    const { input, errors } = normalizeStoreInput(raw, { requireContactEmail: !isMaster });
+    const { input, errors } = normalizeStoreInput(raw, { requireContactEmail: !isMaster, requireMetadata: isMaster });
 
     // Every template column is required except ADDR_2..ADDR_5, which real
     // addresses routinely leave blank. Checked on the original row rather than
