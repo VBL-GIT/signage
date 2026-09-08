@@ -40,6 +40,7 @@ export interface User {
 export interface Vendor {
   id: string; uid: string; code: number | null; name: string;
   contact_person: string | null; contact_phone: string | null; contact_email: string | null;
+  remarks: string | null;
   is_active: boolean;
 }
 export interface Brand { id: string; name: string; created_at?: string; }

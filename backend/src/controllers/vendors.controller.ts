@@ -4,7 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { sendVendorWelcomeEmail } from '../services/email.service';
 import { validateEmail } from '../services/validation';
 
-const COLUMNS = 'id, uid, code, name, contact_person, contact_phone, contact_email, is_active, created_at';
+const COLUMNS = 'id, uid, code, name, contact_person, contact_phone, contact_email, remarks, is_active, created_at';
 
 export async function listVendors(_req: AuthRequest, res: Response) {
   const { rows } = await pool.query(`SELECT ${COLUMNS} FROM vendors ORDER BY name`);
@@ -12,7 +12,7 @@ export async function listVendors(_req: AuthRequest, res: Response) {
 }
 
 export async function createVendor(req: AuthRequest, res: Response) {
-  const { uid, name, contact_person, contact_phone } = req.body;
+  const { uid, name, contact_person, contact_phone, remarks } = req.body;
 
   // Syntax + typo check before anything else, so an obviously-wrong address is
   // rejected with a useful message rather than stored and silently undeliverable.
@@ -38,10 +38,11 @@ export async function createVendor(req: AuthRequest, res: Response) {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO vendors (uid, name, contact_person, contact_phone, contact_email)
-       VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO vendors (uid, name, contact_person, contact_phone, contact_email, remarks)
+       VALUES ($1,$2,$3,$4,$5,$6)
        RETURNING ${COLUMNS}`,
-      [uid || null, name, contact_person || null, contact_phone || null, contact_email || null]
+      [uid || null, name, contact_person || null, contact_phone || null, contact_email || null,
+       String(remarks ?? '').trim().slice(0, 2000) || null]
     );
     let vendor = rows[0];
     // Auto-generate a UID from the vendor's numeric code if none was supplied.
@@ -80,8 +81,9 @@ export async function createVendor(req: AuthRequest, res: Response) {
 
 // Edit a vendor's details (RJCorp admin — vendor.manage).
 export async function updateVendor(req: AuthRequest, res: Response) {
-  const { name, contact_person, contact_phone, contact_email } = req.body as {
+  const { name, contact_person, contact_phone, contact_email, remarks } = req.body as {
     name?: string; contact_person?: string; contact_phone?: string; contact_email?: string;
+    remarks?: string;
   };
   let cleanEmail: string | null | undefined;
   if (contact_email !== undefined) {
@@ -106,6 +108,8 @@ export async function updateVendor(req: AuthRequest, res: Response) {
   if (contact_person !== undefined) add('contact_person', contact_person.trim() || null);
   if (contact_phone !== undefined) add('contact_phone', contact_phone.trim() || null);
   if (contact_email !== undefined) add('contact_email', cleanEmail ?? null);
+  // An empty string clears the note, matching how the other optional fields behave.
+  if (remarks !== undefined) add('remarks', remarks.trim().slice(0, 2000) || null);
   if (!sets.length) { res.status(400).json({ error: 'Nothing to update' }); return; }
   params.push(req.params.id);
   try {

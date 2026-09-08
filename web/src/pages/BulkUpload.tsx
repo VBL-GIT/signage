@@ -23,9 +23,11 @@ interface Channel {
 // Top-level channels (each is its own tab).
 const SIMPLE: Channel[] = [
   { key: 'vendors', label: 'Vendors', target: 'vendors', templateBase: 'vendors', priv: 'vendor.manage',
-    hint: 'name (required), contact_person, contact_phone, contact_email — UID is auto-generated' },
-  { key: 'users', label: 'Users', target: 'users', templateBase: 'users', priv: 'user.manage',
-    hint: 'first_name, last_name, email, role, mobile, vendor_uid (optional) — a temporary password is generated and emailed to each user' },
+    hint: 'company_name (required), contact_person, contact_phone, contact_email, remarks — UID is auto-generated' },
+  // Target stays 'users' — that is the API endpoint. Only the label and the
+  // template file are named for employees, which is what these rows create.
+  { key: 'users', label: 'Employees', target: 'users', templateBase: 'employees', priv: 'user.manage',
+    hint: 'first_name, last_name, email, role, mobile, vendor_uid (optional) — a temporary password is generated and emailed to each account' },
 ];
 
 // Stores accept two sheet layouts, as sub-tabs under one "Stores" tab.

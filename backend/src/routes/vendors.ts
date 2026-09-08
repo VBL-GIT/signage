@@ -19,6 +19,8 @@ router.post('/',
     contact_phone: z.string().min(1),
     // Shape only; validateEmail() in createVendor trims and validates.
     contact_email: z.string().min(1),
+    // Free-text operator note. Optional, and never used in a business rule.
+    remarks: z.string().max(2000).optional(),
   })), createVendor as any);
 
 router.patch('/:id/status',
@@ -35,6 +37,7 @@ router.patch('/:id',
     // Shape only; validateEmail() in updateVendor validates a non-empty value,
     // and an empty string still means "clear this field".
     contact_email: z.string().optional(),
+    remarks: z.string().max(2000).optional(),
   })),
   updateVendor as any);
 

@@ -52,6 +52,7 @@ function VendorForm() {
   const [person, setPerson] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [remarks, setRemarks] = useState('');
   async function submit() {
     s.setErr(null); s.setOk(null);
     if (!name.trim() || !person.trim() || !phone.trim() || !email.trim()) {
@@ -61,9 +62,10 @@ function VendorForm() {
     try {
       const v = await createVendor({
         name: name.trim(), contact_person: person.trim(), contact_phone: phone.trim(), contact_email: email.trim(),
+        remarks: remarks.trim() || undefined,
       });
       s.setOk(`Vendor "${v.name}" created · UID ${v.uid}`);
-      setName(''); setPerson(''); setPhone(''); setEmail('');
+      setName(''); setPerson(''); setPhone(''); setEmail(''); setRemarks('');
     } catch (e) { s.setErr(apiError(e)); } finally { s.setBusy(false); }
   }
   return (
@@ -76,7 +78,10 @@ function VendorForm() {
         <div><label>Contact Person Phone *</label><input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
       </div>
       <label>Vendor Email *</label><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="contact@vendor.com" />
-      <p className="meta" style={{ marginTop: 6 }}>All fields are required. Emails must be unique across vendors. A vendor UID is generated automatically.</p>
+      <label>Remarks</label>
+      <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} maxLength={2000}
+        placeholder="Optional note about this vendor" />
+      <p className="meta" style={{ marginTop: 6 }}>Everything except Remarks is required. Company name and email must each be unique across vendors. A vendor UID is generated automatically.</p>
       <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Create Vendor</Button>
     </Card>
   );

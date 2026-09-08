@@ -571,8 +571,10 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
     const r = rows[i];
     const rowNum = i + 2;
     try {
-      const name = str(r.name);
-      if (!name) throw new Error('name is required');
+      // The template header is `company_name`; `name` is still accepted so
+      // sheets saved from the previous template keep working.
+      const name = str(r.company_name) || str(r.name);
+      if (!name) throw new Error('company_name is required');
       // Vendor names must be unique case-insensitively, exactly as the manual
       // Create Vendor form requires. Two vendors with the same name are
       // indistinguishable in the console and ambiguous to a human resolving
@@ -590,7 +592,11 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
         if (seenEmails.has(email)) throw new Error(`Duplicate email within the file: ${email}`);
         seenEmails.add(email);
       }
-      valid.push({ row: rowNum, name, email, tuple: [name, str(r.contact_person) || null, str(r.contact_phone) || null, email] });
+      valid.push({
+        row: rowNum, name, email,
+        tuple: [name, str(r.contact_person) || null, str(r.contact_phone) || null, email,
+                str(r.remarks).slice(0, 2000) || null],
+      });
     } catch (e) {
       failed.push({ row: rowNum, reason: (e as Error).message || 'Unknown error' });
     }
@@ -636,7 +642,7 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
     await inTransaction(async (client) => {
       const created = await chunkedInsert(
         client, 'vendors',
-        ['name', 'contact_person', 'contact_phone', 'contact_email'],
+        ['name', 'contact_person', 'contact_phone', 'contact_email', 'remarks'],
         valid.map((v) => v.tuple), { returning: 'id, code, name, contact_email, contact_person' }
       );
       inserted = created.length;

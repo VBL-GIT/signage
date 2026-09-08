@@ -70,6 +70,7 @@ export async function approveBulk(body: {
 export async function getVendors() { const { data } = await api.get('/api/vendors'); return data as Vendor[]; }
 export async function createVendor(body: {
   name: string; contact_person?: string; contact_phone?: string; contact_email?: string;
+  remarks?: string;
 }) {
   const { data } = await api.post('/api/vendors', body); return data as Vendor;
 }
