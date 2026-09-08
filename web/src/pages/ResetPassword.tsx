@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { resetPassword } from '../api';
-import { Button, ErrorBanner } from '../components/ui';
+import { Button, ErrorBanner, PasswordInput } from '../components/ui';
 import { apiError } from '../api/client';
 
 export function ResetPassword() {
@@ -48,9 +48,9 @@ export function ResetPassword() {
             <p className="meta" style={{ marginTop: -4 }}>Choose a new password for your account.</p>
             <ErrorBanner msg={err} />
             <label>New password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
             <label>Confirm password</label>
-            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             <Button type="submit" disabled={busy} style={{ width: '100%', marginTop: 16 }}>
               {busy ? 'Updating…' : 'Update password'}
             </Button>

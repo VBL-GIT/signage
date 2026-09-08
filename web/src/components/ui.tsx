@@ -22,6 +22,47 @@ export function Field({ label, ...rest }: { label: string } & React.InputHTMLAtt
   );
 }
 
+/**
+ * A password box with a show/hide toggle.
+ *
+ * Used everywhere a password is typed so the behaviour is identical in each
+ * place. Starts masked, and reverts to masked whenever the component is
+ * remounted — revealing is a deliberate per-entry action, never sticky.
+ *
+ * The toggle is a real <button type="button">, so pressing Enter in the field
+ * still submits the form rather than flipping visibility.
+ */
+export function PasswordInput({
+  value, onChange, ...rest
+}: React.InputHTMLAttributes<HTMLInputElement>) {
+  const [shown, setShown] = React.useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        {...rest}
+        type={shown ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        style={{ paddingRight: 68, ...(rest.style ?? {}) }}
+      />
+      <button
+        type="button"
+        onClick={() => setShown((v) => !v)}
+        aria-label={shown ? 'Hide password' : 'Show password'}
+        aria-pressed={shown}
+        title={shown ? 'Hide password' : 'Show password'}
+        style={{
+          position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '4px 6px',
+        }}
+      >
+        {shown ? 'Hide' : 'Show'}
+      </button>
+    </div>
+  );
+}
+
 export function Badge({ status }: { status: string }) {
   const label = status.replace(/_/g, ' ');
   return <span className={`badge ${status}`}>{label}</span>;

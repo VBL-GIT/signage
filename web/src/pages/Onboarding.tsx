@@ -6,7 +6,7 @@ import {
 } from '../api';
 import type { Vendor, Store, Brand, BoardingSize, Artwork, SignageType, Role } from '../types';
 import { SIGNAGE_TYPES, SIGNAGE_TYPE_LABELS, ROLE_LABELS } from '../types';
-import { Button, Card, ErrorBanner, SearchableSelect } from '../components/ui';
+import { Button, Card, ErrorBanner, PasswordInput, SearchableSelect } from '../components/ui';
 import { apiError } from '../api/client';
 
 type Tab = 'vendor' | 'store' | 'user' | 'task';
@@ -250,8 +250,7 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
           delivery works, at which point the generate-and-email path is enough
           on its own and this can go back to being a note. */}
       <label>Temporary password (optional)</label>
-      <input
-        type="password"
+      <PasswordInput
         autoComplete="new-password"
         value={f.password}
         onChange={(e) => setF({ ...f, password: e.target.value })}

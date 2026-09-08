@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../store/auth';
-import { Button, ErrorBanner } from '../components/ui';
+import { Button, ErrorBanner, PasswordInput } from '../components/ui';
 import { apiError } from '../api/client';
 
 export function Login() {
@@ -35,7 +35,7 @@ export function Login() {
         <label>Email</label>
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus />
         <label>Password</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
         <Button type="submit" disabled={busy} style={{ width: '100%', marginTop: 16 }}>
           {busy ? 'Signing in…' : 'Sign In'}
         </Button>
