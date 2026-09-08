@@ -441,7 +441,11 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
 function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown> {
   return {
     customer_code: str(r.CUST_CD),
-    uid: str(r.CUST_UID),
+    // Store UID is mandatory, but the customer-master export does not always
+    // carry a CUST_UID column. Fall back to the customer code so a standard
+    // export imports without hand-editing: the code is already unique, so it
+    // is a safe UID. A CUST_UID column, when present, still wins.
+    uid: str(r.CUST_UID) || str(r.CUST_CD),
     name: str(r.CUST_NAME),
     address: joinAddressParts([r.ADDR_1, r.ADDR_2, r.ADDR_3, r.ADDR_4, r.ADDR_5]),
     pincode: str(r.ADDR_POSTAL),

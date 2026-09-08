@@ -33,9 +33,10 @@ const STORE_SUBS: Channel[] = [
   { key: 'compact', label: 'Store template', target: 'stores', format: 'compact', templateBase: 'stores', priv: 'store.manage',
     hint: 'customer_code, uid, name, address, pincode, lat, long, contact_no, contact_email, contact_person, outlet_status',
     note: 'Rows are matched on customer_code: an existing code updates that store in place (its tasks stay attached), a new code creates one. Stores keep whichever vendor they are already mapped to — vendor_uid is no longer part of this template.' },
-  { key: 'customer_master', label: 'Customer master (Speed dump)', target: 'stores', format: 'customer_master', priv: 'store.manage',
-    hint: 'VBL customer-master export, used as-is: CUST_CD, CUST_UID, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, LATITUDE, LONGITUDE, CUST_STATUS',
-    note: 'Upload the customer-master file unchanged — no template needed. CUST_CD is the Customer Code and CUST_UID becomes the Store UID; ADDR_1…ADDR_5 are combined into the address. Every other column is preserved with the store as source data. This export has no email column, so any contact email already on record is kept.' },
+  { key: 'customer_master', label: 'Customer master (Speed dump)', target: 'stores', format: 'customer_master',
+    templateBase: 'stores_customer_master', priv: 'store.manage',
+    hint: 'hos, state cd, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS',
+    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical. CUST_CD is the Customer Code and, unless the file carries a CUST_UID column, it also becomes the Store UID. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". hos, state cd, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. This export has no email column, so any contact email already on record is left untouched.' },
 ];
 
 // Task sub-channels — shown as sub-tabs under the single "Tasks" tab.
