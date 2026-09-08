@@ -82,7 +82,7 @@ export default function TaskDetailScreen() {
         {task.store_name && <Text style={styles.store}>{task.store_name}</Text>}
         {task.store_address && <Text style={styles.address}>{task.store_address}</Text>}
         {task.store_pincode && <Text style={styles.meta}>Pincode: {task.store_pincode}</Text>}
-        {task.store_uid && <Text style={styles.meta}>Store UID: {task.store_uid}</Text>}
+        {task.store_uid && <Text style={styles.meta}>Customer Code: {task.store_uid}</Text>}
         {task.brand_name && <Text style={styles.meta}>Brand: {task.brand_name}</Text>}
         {task.employee_name && <Text style={styles.meta}>Employee: {task.employee_name}</Text>}
         {(() => {

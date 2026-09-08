@@ -47,7 +47,7 @@ export async function listTasks(req: AuthRequest, res: Response) {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await pool.query(
-    `SELECT t.*, s.name as store_name, s.uid as store_uid, s.pincode as store_pincode,
+    `SELECT t.*, s.name as store_name, COALESCE(s.customer_code, s.uid) as store_uid, s.pincode as store_pincode,
             b.name as brand_name,
             e.name as employee_name, v.name as vendor_name, v.uid as vendor_uid
      FROM tasks t

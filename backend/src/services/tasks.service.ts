@@ -19,7 +19,7 @@ export async function getTaskById(taskId: string) {
   const { rows } = await pool.query(
     `SELECT t.*,
        s.name as store_name, s.address as store_address, s.lat as store_lat, s.long as store_long,
-       s.uid as store_uid, s.contact_no as store_contact_no, s.pincode as store_pincode,
+       COALESCE(s.customer_code, s.uid) as store_uid, s.contact_no as store_contact_no, s.pincode as store_pincode,
        s.contact_email as store_contact_email, s.contact_person as store_contact_person,
        b.name as brand_name,
        sbs.label as boarding_size_label,
