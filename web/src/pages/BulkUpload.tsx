@@ -30,15 +30,13 @@ const SIMPLE: Channel[] = [
     hint: 'first_name, last_name, email, role, mobile, vendor_uid (optional) — a temporary password is generated and emailed to each account' },
 ];
 
-// Stores accept two sheet layouts, as sub-tabs under one "Stores" tab.
+// One store template — the customer-master layout. The backend detects the
+// sheet shape from its headers, so an older compact sheet still imports here
+// and there is no format to pick.
 const STORE_SUBS: Channel[] = [
-  { key: 'compact', label: 'Store template', target: 'stores', format: 'compact', templateBase: 'stores', priv: 'store.manage',
-    hint: 'customer_code, name, address, pincode, lat, long, contact_no, contact_email, contact_person, outlet_status',
-    note: 'Rows are matched on customer_code: an existing code updates that store in place (its tasks stay attached), a new code creates one. Stores keep whichever vendor they are already mapped to — vendor_uid is no longer part of this template.' },
-  { key: 'customer_master', label: 'Customer master (Speed dump)', target: 'stores', format: 'customer_master',
-    templateBase: 'stores_customer_master', priv: 'store.manage',
-    hint: 'hos, state cd, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS',
-    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical. CUST_CD becomes the Customer Code, which is what identifies the store and decides update vs. create. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". hos, state cd, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. This export has no email column, so any contact email already on record is left untouched.' },
+  { key: 'stores', label: 'Stores', target: 'stores', templateBase: 'stores', priv: 'store.manage',
+    hint: 'HOS, State_CD, Cust_CD, Cust_name, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS',
+    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical, and the Guide sheet explains each one. Cust_CD is the Customer Code: an existing code updates that store in place and its tasks stay attached, a new code creates one. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". HOS, State_CD, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. Column names are matched ignoring case and punctuation, so Cust_CD, CUST_CD and "cust cd" all work, and LATTITUDE is accepted for LATITUDE. This export has no email column, so any contact email already on record is left untouched. Sheets saved from the older customer_code/name/address template still import here too.' },
 ];
 
 // Task sub-channels — shown as sub-tabs under the single "Tasks" tab.
@@ -68,7 +66,7 @@ export function BulkUpload() {
 
   const [tab, setTab] = useState<string>(topTabs[0]?.key ?? 'users');
   const [taskSub, setTaskSub] = useState<string>(taskSubs[0]?.key ?? 'recee');
-  const [storeSub, setStoreSub] = useState<string>(storeSubs[0]?.key ?? 'compact');
+  const [storeSub, setStoreSub] = useState<string>(storeSubs[0]?.key ?? 'stores');
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<BulkResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -114,7 +112,9 @@ export function BulkUpload() {
         </div>
       )}
 
-      {tab === 'stores' && (
+      {/* Stores have a single template now, so the sub-tab row is only drawn
+          if more than one store layout ever comes back. */}
+      {tab === 'stores' && storeSubs.length > 1 && (
         <div className="tabs" style={{ marginTop: -4, marginBottom: 4 }}>
           {storeSubs.map((c) => (
             <div key={c.key} className={`tab ${storeSub === c.key ? 'on' : ''}`} onClick={() => { setStoreSub(c.key); reset(); }}>

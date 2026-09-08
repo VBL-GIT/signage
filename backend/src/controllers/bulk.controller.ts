@@ -443,32 +443,61 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
 
 // ----------------------------------------------------------------------------
 /**
- * Map one row of the 56-column customer-master ("speed dump") export onto the
- * store fields this application actually uses. The ~44 columns with no home
- * here are not discarded — the whole original row is preserved verbatim in
+ * Look a column up without caring how the header was cased or punctuated.
+ *
+ * The same export is written "CUST_CD", "Cust_CD" and "cust cd" depending on
+ * who produced it, so keys are normalised to lowercase alphanumerics before
+ * matching: "State_CD", "state cd" and "STATECD" all collapse to "statecd".
+ * Several names can be given for genuinely different spellings — notably
+ * LATITUDE, which some exports spell LATTITUDE — and the first one present
+ * wins.
+ */
+function columnLookup(r: Record<string, unknown>) {
+  const norm = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const byNormalised = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(r)) {
+    const n = norm(k);
+    // First occurrence wins, so an exact header is never shadowed by a later one.
+    if (!byNormalised.has(n)) byNormalised.set(n, v);
+  }
+  return (...names: string[]): unknown => {
+    for (const name of names) {
+      const v = byNormalised.get(norm(name));
+      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return '';
+  };
+}
+
+/**
+ * Map one row of the customer-master ("speed dump") export onto the store
+ * fields this application actually uses. Columns with no home here are not
+ * discarded — the whole original row is preserved verbatim in
  * stores.source_metadata.
  *
  * That export has no email column at all, so contact_email is never set by
  * this channel (and the upsert preserves any address already on record).
  */
 function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown> {
+  const col = columnLookup(r);
   return {
-    customer_code: str(r.CUST_CD),
-    // Store UID is mandatory, but the customer-master export does not always
-    // carry a CUST_UID column. Fall back to the customer code so a standard
-    // export imports without hand-editing: the code is already unique, so it
-    // is a safe UID. A CUST_UID column, when present, still wins.
-    uid: str(r.CUST_UID) || str(r.CUST_CD),
-    name: str(r.CUST_NAME),
-    address: joinAddressParts([r.ADDR_1, r.ADDR_2, r.ADDR_3, r.ADDR_4, r.ADDR_5]),
-    pincode: str(r.ADDR_POSTAL),
-    lat: str(r.LATITUDE),
-    long: str(r.LONGITUDE),
-    contact_person: str(r.CONT_PR),
-    contact_no: str(r.MOBILE_NO),
-    // CUST_STATUS is the outlet status; BLOCK_IND is kept in source_metadata
-    // only, since no business rule consumes it yet.
-    outlet_status: str(r.CUST_STATUS),
+    customer_code: str(col('CUST_CD')),
+    // Customer Code is the store's identifier. uid is no longer collected but
+    // is kept in step with it, because tasks and images still resolve stores by
+    // uid. A CUST_UID column, where an export carries one, still wins.
+    uid: str(col('CUST_UID')) || str(col('CUST_CD')),
+    name: str(col('CUST_NAME')),
+    address: joinAddressParts([col('ADDR_1'), col('ADDR_2'), col('ADDR_3'), col('ADDR_4'), col('ADDR_5')]),
+    pincode: str(col('ADDR_POSTAL')),
+    // LATTITUDE is a common misspelling in real exports; accept either.
+    lat: str(col('LATITUDE', 'LATTITUDE')),
+    long: str(col('LONGITUDE', 'LONGTITUDE')),
+    contact_person: str(col('CONT_PR')),
+    contact_no: str(col('MOBILE_NO')),
+    // CUST_STATUS is the outlet status. Everything else on the row — HOS,
+    // State_CD, CHANNEL, SUB_CHANNEL and any extra columns a wider export
+    // carries — has no field of its own but is kept in source_metadata.
+    outlet_status: str(col('CUST_STATUS')),
     source_metadata: r,
   };
 }
@@ -476,22 +505,34 @@ function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown>
 /**
  * Bulk create-or-update stores from an Excel file.
  *
- * Two formats share this endpoint and one set of business rules:
- *   compact          (default) — the operational store template
- *   customer_master  — VBL's 56-column customer-master export
+ * There is one store template — the customer-master ("speed dump") layout —
+ * but two sheet shapes still import, and the format is DETECTED from the
+ * headers rather than declared by the caller:
+ *   customer master  — CUST_CD / Cust_CD / cust cd present
+ *   compact          — the older customer_code / name / address sheet
+ * An explicit `format` in the body still overrides the detection, so an older
+ * client that names the format keeps working.
+ *
+ * Detecting rather than trusting the caller means a sheet uploaded on the wrong
+ * tab imports correctly instead of failing every row on missing columns.
  *
  * Customer Code is the upsert key: a row whose code already exists UPDATES that
  * store in place (its stores.id is preserved, so existing tasks and assignments
- * keep pointing at it); a new code INSERTS. vendor_uid is no longer part of the
- * store template — a store's vendor mapping is left exactly as it is.
+ * keep pointing at it); a new code INSERTS. vendor_uid is not part of the store
+ * template — a store's vendor mapping is left exactly as it is.
  *
  * All-or-nothing: if any row fails validation, nothing is written at all.
  */
 export async function bulkStores(req: AuthRequest, res: Response) {
   const { file_url, format } = req.body as { file_url: string; format?: string };
-  const isMaster = format === 'customer_master';
   let rows: Record<string, unknown>[];
   try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+
+  // Header-based detection, on the first row's keys. Any casing or punctuation
+  // of CUST_CD counts, since that column exists only in the customer master.
+  const looksLikeMaster = rows.length > 0 &&
+    Object.keys(rows[0]).some((k) => k.toLowerCase().replace(/[^a-z0-9]/g, '') === 'custcd');
+  const isMaster = format === 'customer_master' || (format !== 'compact' && looksLikeMaster);
 
   const failed: RowError[] = [];
   interface Valid { row: number; input: StoreInput }

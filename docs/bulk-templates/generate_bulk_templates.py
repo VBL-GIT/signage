@@ -27,32 +27,17 @@ SPECS = {
         ("contact_email", False, "Vendor email address. Optional, but must be valid and unique when given."),
         ("remarks", False, "Free-text note about this vendor. Not used in any business rule; up to 2000 characters."),
     ],
-    # Customer Code is the business key: a row whose customer_code already
-    # exists UPDATES that store in place (same store record, so its existing
-    # tasks stay attached); a new customer_code creates one. vendor_uid is
-    # deliberately NOT a column — a store's vendor mapping is managed
-    # separately and is never changed by a store upload.
+    # The customer-master ("speed dump") export, used as-is: one store template,
+    # with the export's own column names and order so a file can be pasted in
+    # unchanged. Header matching is case- and punctuation-insensitive at import,
+    # so CUST_CD / Cust_CD / "cust cd" all work. Columns with no field of their
+    # own (HOS, State_CD, CHANNEL, SUB_CHANNEL) are still imported: the whole
+    # row is kept verbatim in stores.source_metadata.
     "stores": [
-        ("customer_code", True, "Customer Code — the store's identifier and the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
-        ("name", True, "Store name."),
-        ("address", True, "Full store address."),
-        ("pincode", True, "PIN code."),
-        ("lat", True, "Latitude (decimal), between -90 and 90."),
-        ("long", True, "Longitude (decimal), between -180 and 180."),
-        ("contact_no", True, "Store contact phone."),
-        ("contact_email", True, "Store contact email. Must be a valid address."),
-        ("contact_person", True, "Store contact person."),
-        ("outlet_status", False, "Outlet status from the customer master, e.g. ACTIVE."),
-    ],
-    # The customer-master ("speed dump") export, used as-is. Column names and
-    # order match that export exactly, so a file can be pasted in unchanged.
-    # Columns with no field of their own (hos, state cd, CHANNEL, SUB_CHANNEL)
-    # are still imported: the whole row is kept verbatim in source_metadata.
-    "stores_customer_master": [
-        ("hos", False, "Head of sales / territory owner. Kept as source data; no field of its own."),
-        ("state cd", False, "State code. Kept as source data; no field of its own."),
-        ("CUST_CD", True, "Customer Code — the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
-        ("CUST_NAME", True, "Store name."),
+        ("HOS", False, "Head of sales / territory owner. Kept as source data; no field of its own."),
+        ("State_CD", False, "State code. Kept as source data; no field of its own."),
+        ("Cust_CD", True, "Customer Code — the store's identifier and the key that decides update vs. create. An existing code updates that store in place and its tasks stay attached; a new code creates one. Must be unique."),
+        ("Cust_name", True, "Store name."),
         ("CONT_PR", False, "Contact person at the outlet."),
         ("MOBILE_NO", False, "Contact phone at the outlet."),
         ("ADDR_1", True, "Address line 1. At least one ADDR_ line must have a real value."),
@@ -63,7 +48,7 @@ SPECS = {
         ("ADDR_POSTAL", True, "PIN code."),
         ("CHANNEL", False, "Sales channel. Kept as source data; no field of its own."),
         ("SUB_CHANNEL", False, "Sales sub-channel. Kept as source data; no field of its own."),
-        ("LATITUDE", True, "Latitude (decimal), between -90 and 90."),
+        ("LATITUDE", True, "Latitude (decimal), between -90 and 90. A file spelling this LATTITUDE is also accepted."),
         ("LONGITUDE", True, "Longitude (decimal), between -180 and 180."),
         ("CUST_STATUS", False, "Outlet status, e.g. ACTIVE. Stored as the store's outlet status."),
     ],
@@ -120,21 +105,11 @@ SAMPLES = {
         ["Prime Display Solutions", "Neha Bansal", "9800000005", "neha@primedisplay.example", "Handles boarding installs only"],
         ["Coastal Signage Works", "", "9800000006", "", ""],
     ],
-    # customer_code, uid, name, address, pincode, lat, long,
-    # contact_no, contact_email, contact_person, outlet_status
-    "stores": [
-        ["YG000000026", "VBL Store - Andheri", "Plot 4, Andheri East", "400069", 19.1197, 72.8468, "02233440001", "andheri@vbl.example", "Store Mgr A", "ACTIVE"],
-        ["YG000000033", "VBL Store - Salt Lake", "Sector V, Salt Lake", "700091", 22.5697, 88.4336, "03344550002", "saltlake@vbl.example", "Store Mgr B", "ACTIVE"],
-        ["YG000000037", "VBL Store - Koramangala", "80 Ft Road, Koramangala", "560095", 12.9352, 77.6245, "08044550003", "koramangala@vbl.example", "Store Mgr C", "ACTIVE"],
-        ["YG000000038", "VBL Store - Hitech City", "Cyber Towers, Madhapur", "500081", 17.4483, 78.3915, "04044550004", "hitechcity@vbl.example", "Store Mgr D", "ACTIVE"],
-        ["YG000101108", "VBL Store - Vaishali Nagar", "Vaishali Nagar Main Rd", "302021", 26.9124, 75.7305, "01414550005", "vaishali@vbl.example", "Store Mgr E", "ACTIVE"],
-        ["YG000101109", "VBL Store - Anna Nagar", "2nd Ave, Anna Nagar", "600040", 13.0850, 80.2101, "04444550006", "annanagar@vbl.example", "Store Mgr F", "ACTIVE"],
-    ],
     # hos, state cd, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1..ADDR_5,
     # ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS.
     # Row 3 shows the "-" and "NA" address placeholders being dropped, and
     # row 5 a repeated address line collapsing to one.
-    "stores_customer_master": [
+    "stores": [
         ["Rajesh Kumar", "MH", "YG000000026", "VBL Store - Andheri", "Store Mgr A", "02233440001",
          "Plot 4", "Andheri East", "Mumbai", "", "", "400069", "GT", "Grocery", 19.1197, 72.8468, "ACTIVE"],
         ["Rajesh Kumar", "MH", "YG000000033", "VBL Store - Powai", "Store Mgr B", "02233440002",
@@ -259,7 +234,7 @@ if __name__ == "__main__":
     out_dir = sys.argv[1] if len(sys.argv) > 1 else HERE
     os.makedirs(out_dir, exist_ok=True)
     print("Writing bulk templates + samples:")
-    order = ["vendors", "stores", "stores_customer_master", "employees",
+    order = ["vendors", "stores", "employees",
              "tasks_recee", "tasks_direct", "tasks_boarding"]
     for kind in order:
         build(kind, SPECS[kind], SAMPLES[kind], out_dir)
