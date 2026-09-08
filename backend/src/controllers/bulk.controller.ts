@@ -15,6 +15,7 @@ import { emailDomain, joinAddressParts, validateEmail, validateOptionalEmail } f
 import {
   StoreInput,
   bulkUpsertStores,
+  isStoreInactive,
   loadStoreIdentityLookup,
   normalizeStoreInput,
   resolveStoreIdentity,
@@ -103,7 +104,7 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
 // ----------------------------------------------------------------------------
 /**
  * Bulk onboard users from an Excel file.
- * Expected columns: first_name, last_name, email, role, mobile, vendor_uid (optional).
+ * Expected columns: first_name, last_name, email, role, mobile, vendor_uid — all required.
  * Passwords are NOT taken from the sheet — each account gets a generated one.
  */
 const ROLE_LETTER: Partial<Record<UserRole, string>> = { employee: 'E', vendor_admin: 'A', vendor_user: 'U' };
@@ -151,14 +152,16 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
       }
       const role = rawRole as UserRole;
       const vendorUid = str(r.vendor_uid);
-      const bodyVendorId = vendorUid ? vendorByUid.get(vendorUid)?.id ?? null : null;
-      if (vendorUid && !bodyVendorId) throw new Error(`Unknown vendor_uid "${vendorUid}"`);
+      // vendor_uid is required on every row. RJCorp accounts belong to no
+      // vendor, so they cannot be created through this template — use
+      // Onboarding > Employee for those.
+      if (!vendorUid) throw new Error('vendor_uid is required');
+      const bodyVendorId = vendorByUid.get(vendorUid)?.id ?? null;
+      if (!bodyVendorId) throw new Error(`Unknown vendor_uid "${vendorUid}"`);
       const scope = resolveUserScope(req.user!, role, bodyVendorId);
 
       const first = str(r.first_name), last = str(r.last_name);
       if (!first || !last) throw new Error('first_name and last_name are required');
-      // mobile is required; vendor_uid deliberately is not, since rjcorp_admin
-      // and rjcorp_user accounts belong to no vendor.
       if (!str(r.mobile)) throw new Error('mobile is required');
 
       // Same syntax + typo rules as the manual Create Account form.
@@ -573,7 +576,7 @@ export async function bulkStores(req: AuthRequest, res: Response) {
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 2; // 1-based, plus the header row
     const raw = isMaster ? fromCustomerMaster(rows[i]) : rows[i];
-    const { input, errors } = normalizeStoreInput(raw, { requireContactEmail: !isMaster, requireMetadata: isMaster });
+    const { input, errors } = normalizeStoreInput(raw, { requireMetadata: isMaster });
 
     // Every template column is required except ADDR_2..ADDR_5, which real
     // addresses routinely leave blank. Checked on the original row rather than
@@ -623,9 +626,30 @@ export async function bulkStores(req: AuthRequest, res: Response) {
   // manual endpoints use — code and uid must not name two different stores.
   if (valid.length && !failed.length) {
     const lookup = await loadStoreIdentityLookup();
+    // An inactive store is frozen, so a row that resolves to one is refused
+    // rather than silently skipped — an all-or-nothing import must say why it
+    // did nothing. A row that reactivates the store is allowed through, which
+    // is the only way an inactive store can ever be edited again.
+    const { rows: inactiveRows } = await pool.query(
+      `SELECT id, name, outlet_status FROM stores WHERE outlet_status IS NOT NULL`
+    );
+    const inactiveById = new Map<string, { name: string; outlet_status: string }>();
+    for (const r of inactiveRows) {
+      if (isStoreInactive(r.outlet_status)) inactiveById.set(r.id, r);
+    }
+
     for (const v of valid) {
       const identity = resolveStoreIdentity(lookup, v.input.customer_code, v.input.uid);
-      if (!identity.ok) failed.push({ row: v.row, reason: identity.reason });
+      if (!identity.ok) { failed.push({ row: v.row, reason: identity.reason }); continue; }
+      const frozen = identity.targetId ? inactiveById.get(identity.targetId) : undefined;
+      if (frozen && isStoreInactive(v.input.outlet_status)) {
+        failed.push({
+          row: v.row,
+          reason:
+            `Store "${frozen.name}" is ${frozen.outlet_status} and is not updated. ` +
+            `Set CUST_STATUS to ACTIVE on this row to change it.`,
+        });
+      }
     }
   }
 

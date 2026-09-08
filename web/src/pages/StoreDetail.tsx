@@ -93,7 +93,7 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
         <div><label>Contact Person *</label><input value={f.contact_person} onChange={set('contact_person')} /></div>
         <div><label>Contact No *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
       </div>
-      <label>Contact Email *</label><input value={f.contact_email} onChange={set('contact_email')} />
+      <label>Contact Email</label><input value={f.contact_email} onChange={set('contact_email')} />
       <p className="meta" style={{ marginTop: 6 }}>
         The store's vendor mapping is not changed here.
       </p>

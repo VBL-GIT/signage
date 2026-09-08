@@ -7,6 +7,7 @@ import {
   loadStoreIdentityLookup,
   normalizeStoreInput,
   resolveStoreIdentity,
+  isStoreInactive,
   storeConflictMessage,
   upsertStore,
 } from '../services/stores.service';
@@ -69,7 +70,7 @@ export async function getStore(req: AuthRequest, res: Response) {
  * create. Same rule as the bulk importer, via the same service.
  */
 export async function createStore(req: AuthRequest, res: Response) {
-  const { input, errors } = normalizeStoreInput(req.body, { requireContactEmail: true, requireMetadata: true });
+  const { input, errors } = normalizeStoreInput(req.body, { requireMetadata: true });
   if (errors.length) {
     res.status(400).json({ error: errors[0], details: errors });
     return;
@@ -80,6 +81,24 @@ export async function createStore(req: AuthRequest, res: Response) {
   if (!identity.ok) {
     res.status(409).json({ error: identity.reason });
     return;
+  }
+
+  // A known Customer Code makes this an update, so the same freeze applies:
+  // an inactive store is not modified unless this very submission reactivates
+  // it. Creating a NEW store as inactive is still allowed — that just records
+  // an outlet that is not trading.
+  if (identity.targetId) {
+    const { rows: tgt } = await pool.query(
+      'SELECT name, outlet_status FROM stores WHERE id = $1', [identity.targetId]
+    );
+    if (tgt[0] && isStoreInactive(tgt[0].outlet_status) && isStoreInactive(input.outlet_status)) {
+      res.status(409).json({
+        error:
+          `Store "${tgt[0].name}" is ${tgt[0].outlet_status} and cannot be updated. ` +
+          `Set its status to ACTIVE to make changes.`,
+      });
+      return;
+    }
   }
 
   try {
@@ -154,9 +173,23 @@ export async function updateStore(req: AuthRequest, res: Response) {
     ...req.body,
   };
 
-  const { input, errors } = normalizeStoreInput(merged, { requireContactEmail: true, requireMetadata: true });
+  const { input, errors } = normalizeStoreInput(merged, { requireMetadata: true });
   if (errors.length) {
     res.status(400).json({ error: errors[0], details: errors });
+    return;
+  }
+
+  // An inactive store is frozen: its details are not updated.
+  //
+  // The one edit allowed through is the one that reactivates it. Without that
+  // exception an inactive store could never be brought back — there would be no
+  // way to change its status, because changing anything is what is blocked.
+  if (isStoreInactive(existing.outlet_status) && isStoreInactive(input.outlet_status)) {
+    res.status(409).json({
+      error:
+        `Store "${existing.name}" is ${existing.outlet_status} and cannot be updated. ` +
+        `Set its status to ACTIVE to make changes.`,
+    });
     return;
   }
 

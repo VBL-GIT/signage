@@ -123,6 +123,25 @@ export interface NormalizedStore {
 export const METADATA_COLUMNS = ['HOS', 'State_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
 
 /**
+ * Outlet statuses that mean "this store is not trading". Matched case- and
+ * punctuation-insensitively, because the customer master writes them several
+ * ways ("INACTIVE", "Closed", "in-active").
+ *
+ * A blank or unrecognised status counts as ACTIVE, deliberately. Most stores
+ * predate the column and have no status at all; treating unknown as inactive
+ * would freeze them and block every task against them.
+ */
+const INACTIVE_STATUSES = new Set([
+  'inactive', 'closed', 'blocked', 'delisted', 'suspended', 'discontinued', 'shut', 'no',
+]);
+
+/** True when a store's outlet status marks it as not trading. */
+export function isStoreInactive(outletStatus: unknown): boolean {
+  const s = str(outletStatus).toLowerCase().replace(/[^a-z]/g, '');
+  return s !== '' && INACTIVE_STATUSES.has(s);
+}
+
+/**
  * Validate + normalise one store payload (an API body or a spreadsheet row).
  * Collects ALL problems rather than throwing on the first, so a bulk row can
  * report everything wrong with it in a single pass.

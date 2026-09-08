@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { pool } from '../config/db';
 import { getTaskById, getTaskSteps, getSignagePlan } from '../services/tasks.service';
 import { AuthRequest } from '../middleware/auth';
+import { isStoreInactive } from '../services/stores.service';
 import { isHeadOffice } from '../auth/privileges';
 
 // Same visibility rules as listTasks: head office sees all, vendor staff see
@@ -127,8 +128,19 @@ export async function createTask(req: AuthRequest, res: Response) {
   const missingRef = async (sql: string, id: string) =>
     (await pool.query(sql, [id])).rows.length === 0;
 
-  if (store_id && await missingRef('SELECT 1 FROM stores WHERE id = $1', store_id)) {
-    res.status(404).json({ error: 'Store not found' }); return;
+  if (store_id) {
+    const { rows: st } = await pool.query(
+      'SELECT name, outlet_status FROM stores WHERE id = $1', [store_id]
+    );
+    if (!st.length) { res.status(404).json({ error: 'Store not found' }); return; }
+    // No work is created against an outlet that is not trading — sending someone
+    // to a closed store wastes a visit, and the task could never be completed.
+    if (isStoreInactive(st[0].outlet_status)) {
+      res.status(409).json({
+        error: `Store "${st[0].name}" is ${st[0].outlet_status}. Tasks cannot be created for an inactive store.`,
+      });
+      return;
+    }
   }
   if (vendor_id && await missingRef('SELECT 1 FROM vendors WHERE id = $1', vendor_id)) {
     res.status(404).json({ error: 'Vendor not found' }); return;
@@ -192,6 +204,20 @@ export async function assignTask(req: AuthRequest, res: Response) {
   const isHeadOffice = req.user!.role === 'rjcorp_admin' || req.user!.role === 'rjcorp_user';
   if (!isHeadOffice && task.vendor_id !== req.user!.vendor_id) {
     res.status(403).json({ error: 'This task does not belong to your vendor' }); return;
+  }
+
+  // A store can go inactive after its tasks were created, so this is checked at
+  // assignment too, not only at creation: nobody is sent to a closed outlet.
+  if (task.store_id) {
+    const { rows: st } = await pool.query(
+      'SELECT name, outlet_status FROM stores WHERE id = $1', [task.store_id]
+    );
+    if (st[0] && isStoreInactive(st[0].outlet_status)) {
+      res.status(409).json({
+        error: `Store "${st[0].name}" is ${st[0].outlet_status}. Tasks for an inactive store cannot be assigned.`,
+      });
+      return;
+    }
   }
 
   const { rows: empRows } = await pool.query(
@@ -264,6 +290,17 @@ export async function assignBulk(req: AuthRequest, res: Response) {
       if (!task) { results.failed.push({ task_id: id, reason: 'Task not found' }); continue; }
       if (!isHeadOffice && task.vendor_id !== req.user!.vendor_id) {
         results.failed.push({ task_id: id, reason: 'Not in your vendor' }); continue;
+      }
+      // Same rule as single assignment: an inactive store gets no visits. Only
+      // this task is skipped — the rest of the batch still goes through.
+      if (task.store_id) {
+        const { rows: st } = await pool.query(
+          'SELECT name, outlet_status FROM stores WHERE id = $1', [task.store_id]
+        );
+        if (st[0] && isStoreInactive(st[0].outlet_status)) {
+          results.failed.push({ task_id: id, reason: `Store "${st[0].name}" is ${st[0].outlet_status}` });
+          continue;
+        }
       }
       if (task.status === 'completed') {
         results.failed.push({ task_id: id, reason: 'Task already completed' }); continue;

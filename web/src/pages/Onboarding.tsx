@@ -117,7 +117,6 @@ function StoreForm() {
       ['contact_person', 'CONT_PR'], ['contact_no', 'MOBILE_NO'], ['ADDR_1', 'ADDR_1'],
       ['pincode', 'ADDR_POSTAL'], ['CHANNEL', 'CHANNEL'], ['SUB_CHANNEL', 'SUB_CHANNEL'],
       ['lat', 'LATITUDE'], ['long', 'LONGITUDE'], ['outlet_status', 'CUST_STATUS'],
-      ['contact_email', 'Contact Email'],
     ] as [keyof typeof f, string][]).filter(([k]) => !f[k].trim()).map(([, label]) => label);
     if (missing.length) { s.setErr(`Required: ${missing.join(', ')}`); return; }
     const lat = Number(f.lat), long = Number(f.long);
@@ -174,12 +173,12 @@ function StoreForm() {
         <div><label>LATITUDE *</label><input value={f.lat} onChange={set('lat')} placeholder="19.0760" /></div>
         <div><label>LONGITUDE *</label><input value={f.long} onChange={set('long')} placeholder="72.8777" /></div>
       </div>
-      <label>Contact Email *</label><input value={f.contact_email} onChange={set('contact_email')} placeholder="store@example.com" />
+      <label>Contact Email</label><input value={f.contact_email} onChange={set('contact_email')} placeholder="store@example.com (optional)" />
       <p className="meta" style={{ marginTop: 4 }}>
         These are the same columns as the Stores bulk template, in the same order.
         ADDR_1–ADDR_5 are joined into one address; only ADDR_2–ADDR_5 may be left blank.
-        Contact Email is the one extra — the customer-master export has no email column,
-        so this form is the only place it can be set.
+        Contact Email is the one extra and is optional — the customer-master export has no
+        email column, so this form is the only place it can be set.
       </p>
       <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Save Store</Button>
     </Card>

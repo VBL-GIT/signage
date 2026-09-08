@@ -50,7 +50,7 @@ SPECS = {
         ("SUB_CHANNEL", True, "Sales sub-channel. Kept as source data; no field of its own."),
         ("LATITUDE", True, "Latitude (decimal), between -90 and 90. A file spelling this LATTITUDE is also accepted."),
         ("LONGITUDE", True, "Longitude (decimal), between -180 and 180."),
-        ("CUST_STATUS", True, "Outlet status, e.g. ACTIVE. Stored as the store's outlet status."),
+        ("CUST_STATUS", True, "Outlet status, e.g. ACTIVE. A store already marked INACTIVE/Closed is frozen: its row is rejected rather than updated, unless this row sets the status back to ACTIVE."),
     ],
     "employees": [
         ("first_name", True, "Given name."),
@@ -58,7 +58,7 @@ SPECS = {
         ("email", True, "Login email (unique)."),
         ("role", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user."),
         ("mobile", True, "Mobile number."),
-        ("vendor_uid", False, "Required for employee/vendor roles. Must exist, e.g. VND-001."),
+        ("vendor_uid", True, "Vendor the account belongs to. Must exist, e.g. VND-001. RJCorp accounts belong to no vendor and cannot be created from this template — use Onboarding > Employee for those."),
     ],
     # Tasks are split by type — one template per task type. The task type is fixed
     # by which template you use, so no task_type / installation_type columns.
@@ -132,7 +132,7 @@ SAMPLES = {
         ["Deepak", "Nair", "deepak.nair@vendor.example", "vendor_admin", "9811110003", "VND-001"],
         ["Priya", "Menon", "priya.menon@vendor.example", "employee", "9811110004", "VND-002"],
         ["Arjun", "Singh", "arjun.singh@vendor.example", "vendor_user", "9811110005", "VND-002"],
-        ["Kavya", "Reddy", "kavya.reddy@rjcorp.example", "rjcorp_user", "9811110006", ""],
+        ["Kavya", "Reddy", "kavya.reddy@vendor.example", "vendor_user", "9811110006", "VND-002"],
     ],
     "tasks_recee": [
         ["VND-001", "YG000000026"],
