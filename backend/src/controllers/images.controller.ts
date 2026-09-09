@@ -8,6 +8,23 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 200;
 
 /**
+ * Read one column out of a store's source_metadata JSONB by name, ignoring how
+ * its key was cased.
+ *
+ * `source_metadata->>'HOS'` was an exact-key lookup, so a store imported from a
+ * sheet spelling the column Hos or "hos" reported no HOS at all — the filter
+ * silently matched nothing and the column rendered blank. New imports store
+ * their keys all-caps, but stores imported before that do not, so the SQL has
+ * to match the same way every other column read does: on spelling alone.
+ *
+ * `name` is a literal, never user input.
+ */
+function metaColumn(alias: string, name: string): string {
+  return `(SELECT mc.value FROM jsonb_each_text(${alias}.source_metadata) mc
+           WHERE upper(mc.key) = '${name}' LIMIT 1)`;
+}
+
+/**
  * Browse task photos across recee, post-recee/boarding, and direct (pamphlet)
  * installations — RJCorp head office only. Filters: date range (photo capture
  * time), Customer Code, pincode (matches either the store's pincode or the
@@ -42,7 +59,7 @@ export async function listImages(req: AuthRequest, res: Response) {
   // so it is read out of the JSON. Partial, case-insensitive: operators know
   // the person's name, not the exact stored spelling.
   if (hos) {
-    conditions.push(`s.source_metadata->>'HOS' ILIKE $${idx++}`);
+    conditions.push(`${metaColumn('s', 'HOS')} ILIKE $${idx++}`);
     params.push(`%${hos}%`);
   }
   // Employee UID, or their name — the UID is on screen but the name is what a
@@ -64,7 +81,7 @@ export async function listImages(req: AuthRequest, res: Response) {
               sbs.label as boarding_size_label,
               t.id as task_id, t.task_type, t.installation_type, t.pincode as task_pincode,
               COALESCE(s.customer_code, s.uid) as store_uid, s.name as store_name, s.pincode as store_pincode,
-              s.source_metadata->>'HOS' as hos,
+              ${metaColumn('s', 'HOS')} as hos,
               e.uid as employee_uid,
               v.name as vendor_name, e.name as employee_name
        FROM task_step_photos tsp
