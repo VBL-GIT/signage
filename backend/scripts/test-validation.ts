@@ -9,6 +9,7 @@ import {
   validateOptionalEmail,
   joinAddressParts,
   assertSheetShape,
+  assertHeaderSpelling,
 } from '../src/services/validation';
 import {
   resolveStoreIdentity,
@@ -140,12 +141,12 @@ const baseRow = {
   pincode: '400601', lat: '19.207875', long: '72.984682', contact_email: 'a@b.com',
 };
 {
-  const { errors } = normalizeStoreInput(baseRow, { requireContactEmail: true });
+  const { errors } = normalizeStoreInput(baseRow, {});
   check('valid row has no errors', errors.length === 0, errors.join('; '));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, customer_code: '' }, {});
-  check('missing customer_code rejected', errors.some((e) => e.includes('customer_code')));
+  check('missing CUST_CD rejected', errors.some((e) => e.includes('CUST_CD')), errors.join('; '));
 }
 {
   // Customer Code is now the store's single identifier. uid is no longer
@@ -163,7 +164,7 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: 'abc' }, {});
-  check('non-numeric lat rejected', errors.some((e) => e.includes('lat')));
+  check('non-numeric LATITUDE rejected', errors.some((e) => e.includes('LATITUDE')), errors.join('; '));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: '99' }, {});
@@ -171,15 +172,40 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, contact_email: 'bad@@x.com' }, {});
-  check('invalid contact_email rejected', errors.some((e) => e.includes('contact_email')));
+  check('invalid CONTACT_EMAIL rejected', errors.some((e) => e.includes('CONTACT_EMAIL')), errors.join('; '));
 }
 {
-  const { errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, { requireContactEmail: true });
-  check('compact channel requires contact_email', errors.some((e) => e.includes('contact_email is required')));
+  // CONTACT_EMAIL is optional on every channel, and there is no longer an
+  // option to demand it: a blank one must never stop a store being saved.
+  const { input, errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, {});
+  check('a blank CONTACT_EMAIL is accepted', errors.length === 0, errors.join('; '));
+  check('and is stored as NULL', input.contact_email === null, String(input.contact_email));
 }
 {
-  const { errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, { requireContactEmail: false });
-  check('customer-master channel does not require contact_email', errors.length === 0, errors.join('; '));
+  const { errors } = normalizeStoreInput({ ...baseRow, contact_person: '', contact_no: '' }, {});
+  check('blank CONT_PR / MOBILE_NO are accepted', errors.length === 0, errors.join('; '));
+}
+
+// The context columns are canonically STATE_CD now, in caps like the template.
+// Renaming the canonical spelling must not reject sheets or clients still
+// sending the old one.
+{
+  const withOldSpelling = { ...baseRow, HOS: 'Rajesh', State_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery' };
+  const { input, errors } = normalizeStoreInput(withOldSpelling, { requireMetadata: true });
+  check('State_CD still satisfies STATE_CD', errors.length === 0, errors.join('; '));
+  check('and is stored under the canonical caps name',
+    (input.source_metadata as Record<string, unknown>)?.STATE_CD === 'MH',
+    JSON.stringify(input.source_metadata));
+}
+{
+  const capsSpelling = { ...baseRow, HOS: 'Rajesh', STATE_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery' };
+  const { errors } = normalizeStoreInput(capsSpelling, { requireMetadata: true });
+  check('STATE_CD satisfies STATE_CD', errors.length === 0, errors.join('; '));
+}
+{
+  const { errors } = normalizeStoreInput({ ...baseRow, HOS: 'Rajesh', CHANNEL: 'GT', SUB_CHANNEL: 'G' }, { requireMetadata: true });
+  check('a missing context column is named in caps',
+    errors.some((e) => e === 'STATE_CD is required'), errors.join('; '));
 }
 {
   const { input } = normalizeStoreInput(baseRow, {});
@@ -277,6 +303,50 @@ const storeRows = [{
 }
 {
   check('an empty file is not refused by shape', shapeError([], 'Stores') === '');
+}
+
+console.log('\n== header spelling (case is fine, typos are not) ==');
+function spellingError(rows: Record<string, unknown>[], channel: string): string {
+  try { assertHeaderSpelling(rows, channel); return ''; } catch (e) { return (e as Error).message; }
+}
+{
+  // Any casing or punctuation of a real column must import untouched — that is
+  // the whole point of matching normalised names.
+  const casings = [
+    { cust_cd: 'YG1', cust_name: 'A', addr_1: 'B', addr_postal: '400601', latitude: '19', longitude: '72' },
+    { 'Cust CD': 'YG1', 'Cust Name': 'A', 'Addr 1': 'B', 'Addr Postal': '400601' },
+    { CUSTOMER_CODE: 'YG1', NAME: 'A', ADDRESS: 'B', PINCODE: '400601', LAT: '19', LONG: '72' },
+  ];
+  for (const [i, row] of casings.entries()) {
+    check(`casing variant ${i + 1} is accepted`, spellingError([row], 'Stores') === '', spellingError([row], 'Stores'));
+  }
+  check('LATTITUDE is a known spelling, not a typo',
+    spellingError([{ CUST_CD: 'YG1', LATTITUDE: '19' }], 'Stores') === '');
+}
+{
+  const msg = spellingError([{ CUSTMER_CODE: 'YG1', CUST_NAME: 'A' }], 'Stores');
+  check('a misspelled column is refused', msg !== '');
+  check('and the right spelling is suggested', msg.includes('CUSTOMER_CODE'), msg);
+}
+{
+  const msg = spellingError([{ COMPANY_NAM: 'Apex', CONTACT_PERSON: 'R' }], 'Vendors');
+  check('a misspelled vendor column is refused', msg.includes('COMPANY_NAME'), msg);
+}
+{
+  const msg = spellingError([{ FIRST_NAME: 'A', LAST_NAME: 'B', EMAIL: 'a@b.com', ROLE: 'employee', MOBIEL: '9' }], 'Employees');
+  check('a misspelled employee column is refused', msg.includes('MOBILE'), msg);
+}
+{
+  // A real customer-master export carries dozens of columns with no field here.
+  // They are kept as source data, so they must not be mistaken for typos.
+  const wide = {
+    CUST_CD: 'YG1', CUST_NAME: 'A', ADDR_1: 'B', ADDR_POSTAL: '400601',
+    GST_NO: '27AAA', BEAT_NAME: 'North 4', ROUTE_CODE: 'R12', SALESMAN: 'K Rao', DISTRIBUTOR_NAME: 'D1',
+  };
+  check('unrelated extra columns are left alone', spellingError([wide], 'Stores') === '', spellingError([wide], 'Stores'));
+}
+{
+  check('an empty file has no spelling to check', spellingError([], 'Stores') === '');
 }
 
 console.log('\n== Create Store request body (the schema the app mounts) ==');

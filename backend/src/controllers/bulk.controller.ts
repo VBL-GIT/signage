@@ -13,7 +13,7 @@ import { generateTemporaryPassword } from '../services/password';
 import { sealPassword } from '../services/credential-vault';
 import { env } from '../config/env';
 import {
-  assertSheetShape, columnLookup, emailDomain, joinAddressParts, validateEmail, validateOptionalEmail,
+  assertHeaderSpelling, assertSheetShape, columnLookup, emailDomain, joinAddressParts, validateEmail, validateOptionalEmail,
 } from '../services/validation';
 import {
   StoreInput,
@@ -107,7 +107,8 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
 // ----------------------------------------------------------------------------
 /**
  * Bulk onboard users from an Excel file.
- * Expected columns: FIRST_NAME, LAST_NAME, EMAIL, ROLE, MOBILE, VENDOR_UID — all required.
+ * Expected columns: FIRST_NAME, LAST_NAME, EMAIL, ROLE, VENDOR_UID (required) and
+ * MOBILE (optional).
  * Headers are matched ignoring case and punctuation, so older lower-case
  * sheets still import.
  * Passwords are NOT taken from the sheet — each account gets a generated one.
@@ -133,6 +134,7 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
   try {
     rows = await fetchSheetRows(file_url);
     assertSheetShape(rows, 'Employees');
+    assertHeaderSpelling(rows, 'Employees');
   } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const vendorByUid = new Map<string, { id: string; code: number }>();
@@ -171,9 +173,10 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
 
       const first = str(col('FIRST_NAME')), last = str(col('LAST_NAME'));
       if (!first || !last) throw new Error('FIRST_NAME and LAST_NAME are required');
-      if (!str(col('MOBILE'))) throw new Error('MOBILE is required');
-
-      // Same syntax + typo rules as the manual Create Account form.
+      // MOBILE may be blank — it is a contact detail, not part of the account.
+      // EMAIL below stays required because it IS the account: it is the login,
+      // and it is where the temporary password is sent, so a row without one
+      // creates an account nobody can get into.
       const check = validateEmail(col('EMAIL'), 'EMAIL');
       if (!check.ok) throw new Error(check.reason!);
       const email = check.value;
@@ -331,6 +334,7 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
   try {
     rows = await fetchSheetRows(file_url);
     assertSheetShape(rows, 'Tasks');
+    assertHeaderSpelling(rows, 'Tasks');
   } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const vendorByUid = new Map<string, string>();
@@ -509,17 +513,22 @@ function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown>
 }
 
 /**
- * Customer-master columns that must carry a value. ADDR_2..ADDR_5 are absent
- * on purpose: real addresses are rarely five lines, and requiring them would
- * reject most of a genuine export. Cust_CD, Cust_name, ADDR_1, ADDR_POSTAL,
- * LATITUDE and LONGITUDE are enforced by normalizeStoreInput instead, which
- * already reports them by their store-field names.
+ * Customer-master columns that must carry a value.
+ *
+ * These are the ones that place the store — territory, channel and whether it
+ * is trading. CUST_CD, CUST_NAME, ADDR_1, ADDR_POSTAL, LATITUDE and LONGITUDE
+ * are enforced by normalizeStoreInput instead, which reports them under the
+ * same column names.
+ *
+ * Absent on purpose: ADDR_2..ADDR_5, because real addresses are rarely five
+ * lines; and CONT_PR / MOBILE_NO, because a contact person and phone number are
+ * details ABOUT a store rather than part of one. Requiring a contact detail
+ * meant one blank cell rejected an otherwise complete file, which is the same
+ * mistake that made a blank optional email unsavable on the store form.
  */
 const MASTER_REQUIRED: { label: string; accepts: string[] }[] = [
   { label: 'HOS', accepts: ['HOS'] },
-  { label: 'State_CD', accepts: ['State_CD'] },
-  { label: 'CONT_PR', accepts: ['CONT_PR'] },
-  { label: 'MOBILE_NO', accepts: ['MOBILE_NO'] },
+  { label: 'STATE_CD', accepts: ['STATE_CD'] },
   { label: 'CHANNEL', accepts: ['CHANNEL'] },
   { label: 'SUB_CHANNEL', accepts: ['SUB_CHANNEL'] },
   { label: 'CUST_STATUS', accepts: ['CUST_STATUS'] },
@@ -552,6 +561,7 @@ export async function bulkStores(req: AuthRequest, res: Response) {
   try {
     rows = await fetchSheetRows(file_url);
     assertSheetShape(rows, 'Stores');
+    assertHeaderSpelling(rows, 'Stores');
   } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   // Header-based detection, on the first row's keys. Any casing or punctuation
@@ -668,7 +678,8 @@ export async function bulkStores(req: AuthRequest, res: Response) {
 // ----------------------------------------------------------------------------
 /**
  * Bulk create vendors from an Excel file (RJCorp admin only).
- * Columns: name (required), contact_person, contact_phone, contact_email. UID auto-generated (VND-NNN).
+ * Columns: COMPANY_NAME (required); CONTACT_PERSON, CONTACT_PHONE, CONTACT_EMAIL and
+ * REMARKS all optional. UID auto-generated (VND-NNN).
  */
 export async function bulkVendors(req: AuthRequest, res: Response) {
   const { file_url } = req.body;
@@ -676,6 +687,7 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
   try {
     rows = await fetchSheetRows(file_url);
     assertSheetShape(rows, 'Vendors');
+    assertHeaderSpelling(rows, 'Vendors');
   } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const failed: RowError[] = [];
@@ -692,12 +704,12 @@ export async function bulkVendors(req: AuthRequest, res: Response) {
       // so sheets saved from the previous template keep working.
       const col = columnLookup(r);
       const name = str(col('COMPANY_NAME', 'NAME'));
+      // COMPANY_NAME is the only required vendor column. The contact columns and
+      // REMARKS may all be blank: a vendor master is a record rather than a
+      // login, and real onboarding lists routinely arrive with the contact
+      // details still to come. Requiring them meant one blank cell rejected the
+      // whole file, which is not a data problem worth stopping an import for.
       if (!name) throw new Error('COMPANY_NAME is required');
-      // Every vendor column is required. Checked before the email rules so a
-      // blank cell is reported as missing rather than as a malformed address.
-      for (const key of ['CONTACT_PERSON', 'CONTACT_PHONE', 'CONTACT_EMAIL', 'REMARKS']) {
-        if (!str(col(key))) throw new Error(`${key} is required`);
-      }
       // Vendor names must be unique case-insensitively, exactly as the manual
       // Create Vendor form requires. Two vendors with the same name are
       // indistinguishable in the console and ambiguous to a human resolving

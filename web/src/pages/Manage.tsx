@@ -277,7 +277,7 @@ function Vendors() {
     setForm({ name: v.name, contact_person: v.contact_person ?? '', contact_phone: v.contact_phone ?? '', contact_email: v.contact_email ?? '' });
   }
   async function save(v: Vendor) {
-    if (!form.name.trim()) { setErr('Name is required'); return; }
+    if (!form.name.trim()) { setErr('COMPANY_NAME is required'); return; }
     setBusyId(v.id); setErr(null);
     try { const u = await updateVendor(v.id, form); setVendors((p) => p!.map((x) => (x.id === v.id ? u : x))); setEditId(null); }
     catch (e) { setErr(apiError(e)); } finally { setBusyId(null); }
@@ -298,10 +298,10 @@ function Vendors() {
               <div style={{ flex: 1 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>{v.uid}</div>
                 <div className="grid2">
-                  <div><label>Name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-                  <div><label>Contact person</label><input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></div>
-                  <div><label>Contact phone</label><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></div>
-                  <div><label>Contact email</label><input value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></div>
+                  <div><label>COMPANY_NAME</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+                  <div><label>CONTACT_PERSON</label><input value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} /></div>
+                  <div><label>CONTACT_PHONE</label><input value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} /></div>
+                  <div><label>CONTACT_EMAIL</label><input value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} /></div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                   <Button size="sm" disabled={busyId === v.id} onClick={() => save(v)}>Save</Button>
@@ -392,7 +392,10 @@ function Employees() {
     setForm({ first_name: u.first_name ?? '', last_name: u.last_name ?? '', email: u.email, mobile: u.phone ?? '' });
   }
   async function save(u: User) {
-    if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim()) { setErr('First name, last name and email are required'); return; }
+    // MOBILE may be blank; EMAIL may not, because it is the account's login.
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim()) {
+      setErr('FIRST_NAME, LAST_NAME and EMAIL are required'); return;
+    }
     setBusyId(u.id); setErr(null);
     try { const upd = await updateUser(u.id, form); setUsers((p) => p!.map((x) => (x.id === u.id ? upd : x))); setEditId(null); }
     catch (e) { setErr(apiError(e)); } finally { setBusyId(null); }
@@ -432,10 +435,10 @@ function Employees() {
               <div style={{ flex: 1 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>{u.uid}</div>
                 <div className="grid2">
-                  <div><label>First name</label><input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></div>
-                  <div><label>Last name</label><input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></div>
-                  <div><label>Email</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
-                  <div><label>Mobile</label><input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} /></div>
+                  <div><label>FIRST_NAME</label><input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></div>
+                  <div><label>LAST_NAME</label><input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></div>
+                  <div><label>EMAIL</label><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                  <div><label>MOBILE</label><input value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} /></div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                   <Button size="sm" disabled={busyId === u.id} onClick={() => save(u)}>Save</Button>

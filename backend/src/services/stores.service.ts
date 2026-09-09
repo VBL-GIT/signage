@@ -120,7 +120,13 @@ export interface NormalizedStore {
  * from the source row is lost, and required because the store template requires
  * them — the onboarding form collects exactly the same set.
  */
-export const METADATA_COLUMNS = ['HOS', 'State_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
+// All-caps, like the template headers and every other column name shown in the
+// console. Only the canonical spelling changes: these are matched through
+// columnLookup, so a sheet or a client sending State_CD, state_cd or "state cd"
+// still lands on the same column, and stores imported before this keep whatever
+// spelling their source row used inside source_metadata (readers there look the
+// key up case-insensitively for exactly that reason).
+export const METADATA_COLUMNS = ['HOS', 'STATE_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
 
 /**
  * Outlet statuses that mean "this store is not trading". Matched case- and
@@ -146,17 +152,18 @@ export function isStoreInactive(outletStatus: unknown): boolean {
  * Collects ALL problems rather than throwing on the first, so a bulk row can
  * report everything wrong with it in a single pass.
  *
- * `requireContactEmail` is false for the customer-master channel: that export
- * has no email column at all, so demanding one would make the whole file
- * unimportable.
+ * CONTACT_EMAIL is never required, by any channel, and there is deliberately no
+ * option to make it so: the customer-master export has no email column at all,
+ * and the store form labels it optional. An address that IS supplied is still
+ * held to the syntax and typo rules.
  *
- * `requireMetadata` enforces HOS / State_CD / CHANNEL / SUB_CHANNEL. Both the
+ * `requireMetadata` enforces HOS / STATE_CD / CHANNEL / SUB_CHANNEL. Both the
  * store form and the store template collect them, so both pass it — this is
  * what stops the two drifting apart again.
  */
 export function normalizeStoreInput(
   raw: Record<string, unknown>,
-  opts: { requireContactEmail?: boolean; requireMetadata?: boolean } = {}
+  opts: { requireMetadata?: boolean } = {}
 ): NormalizedStore {
   const errors: string[] = [];
 
@@ -202,28 +209,30 @@ export function normalizeStoreInput(
     joinAddressParts([col('ADDR_1'), col('ADDR_2'), col('ADDR_3'), col('ADDR_4'), col('ADDR_5')]);
   const pincode = str(col('pincode', 'ADDR_POSTAL'));
 
-  if (!customer_code) errors.push('customer_code (Customer Code) is required');
-  if (!name) errors.push('name is required');
-  if (!address) errors.push('address (ADDR_1) is required');
-  if (!pincode) errors.push('pincode is required');
+  // Reported under the column names the template and the store form both use,
+  // in caps — the person fixing the row is looking at CUST_CD in a spreadsheet,
+  // not at customer_code in a database.
+  if (!customer_code) errors.push('CUST_CD (Customer Code) is required');
+  if (!name) errors.push('CUST_NAME is required');
+  if (!address) errors.push('ADDR_1 is required');
+  if (!pincode) errors.push('ADDR_POSTAL (Pincode) is required');
 
   // LATTITUDE / LONGTITUDE are common misspellings in real exports; accepted
   // here for the same reason the customer-master mapper accepts them.
   const lat = parseFloat(str(col('lat', 'LATITUDE', 'LATTITUDE')));
   const long = parseFloat(str(col('long', 'LONGITUDE', 'LONGTITUDE')));
   if (isNaN(lat) || isNaN(long)) {
-    errors.push('lat and long must be numbers');
+    errors.push('LATITUDE and LONGITUDE must be numbers');
   } else {
-    if (lat < -90 || lat > 90) errors.push('lat must be between -90 and 90');
-    if (long < -180 || long > 180) errors.push('long must be between -180 and 180');
+    if (lat < -90 || lat > 90) errors.push('LATITUDE must be between -90 and 90');
+    if (long < -180 || long > 180) errors.push('LONGITUDE must be between -180 and 180');
   }
 
+  // CONTACT_EMAIL is optional everywhere: blank saves as NULL, and only a
+  // non-empty address is held to the syntax + typo rules.
   const contact_email = col('contact_email');
-  const emailCheck = validateOptionalEmail(contact_email, 'contact_email');
+  const emailCheck = validateOptionalEmail(contact_email, 'CONTACT_EMAIL');
   if (!emailCheck.ok) errors.push(emailCheck.reason!);
-  if (opts.requireContactEmail && !str(contact_email)) {
-    errors.push('contact_email is required');
-  }
 
   const input: StoreInput = {
     customer_code,
