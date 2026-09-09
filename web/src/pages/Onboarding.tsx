@@ -87,13 +87,13 @@ function VendorForm() {
   );
 }
 
-// Field-for-field the store bulk template, in its order, so the two channels
-// ask for exactly the same thing. ADDR_2..ADDR_5 are the only optional ones —
+// Field-for-field the store bulk template, in its order and under its own
+// all-caps column names, so the two channels ask for exactly the same thing. ADDR_2..ADDR_5 are the only optional ones —
 // real addresses are rarely five lines. contact_email is the one extra: the
 // customer-master export has no email column, but a store record holds one and
 // this is the only place it can be set.
 const EMPTY_STORE = {
-  HOS: '', State_CD: '', customer_code: '', name: '',
+  HOS: '', STATE_CD: '', customer_code: '', name: '',
   contact_person: '', contact_no: '',
   ADDR_1: '', ADDR_2: '', ADDR_3: '', ADDR_4: '', ADDR_5: '',
   pincode: '', CHANNEL: '', SUB_CHANNEL: '',
@@ -113,7 +113,7 @@ function StoreForm() {
     s.setErr(null); s.setOk(null);
     // Same required set the template enforces; only ADDR_2..ADDR_5 may be blank.
     const missing = ([
-      ['HOS', 'HOS'], ['State_CD', 'State_CD'], ['customer_code', 'Customer Code'], ['name', 'Name'],
+      ['HOS', 'HOS'], ['STATE_CD', 'STATE_CD'], ['customer_code', 'CUST_CD'], ['name', 'CUST_NAME'],
       ['contact_person', 'CONT_PR'], ['contact_no', 'MOBILE_NO'], ['ADDR_1', 'ADDR_1'],
       ['pincode', 'ADDR_POSTAL'], ['CHANNEL', 'CHANNEL'], ['SUB_CHANNEL', 'SUB_CHANNEL'],
       ['lat', 'LATITUDE'], ['long', 'LONGITUDE'], ['outlet_status', 'CUST_STATUS'],
@@ -131,7 +131,7 @@ function StoreForm() {
         // drops blanks, so the form and an upload produce the same address.
         ADDR_1: f.ADDR_1.trim(), ADDR_2: f.ADDR_2.trim(), ADDR_3: f.ADDR_3.trim(),
         ADDR_4: f.ADDR_4.trim(), ADDR_5: f.ADDR_5.trim(),
-        HOS: f.HOS.trim(), State_CD: f.State_CD.trim(),
+        HOS: f.HOS.trim(), STATE_CD: f.STATE_CD.trim(),
         CHANNEL: f.CHANNEL.trim(), SUB_CHANNEL: f.SUB_CHANNEL.trim(),
         contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
         contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim(),
@@ -152,9 +152,9 @@ function StoreForm() {
       </p>
       <div className="grid2">
         <div><label>HOS *</label><input value={f.HOS} onChange={set('HOS')} placeholder="Head of sales" /></div>
-        <div><label>State_CD *</label><input value={f.State_CD} onChange={set('State_CD')} placeholder="e.g. MH" /></div>
-        <div><label>Cust_CD (Customer Code) *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
-        <div><label>Cust_name *</label><input value={f.name} onChange={set('name')} /></div>
+        <div><label>STATE_CD *</label><input value={f.STATE_CD} onChange={set('STATE_CD')} placeholder="e.g. MH" /></div>
+        <div><label>CUST_CD (Customer Code) *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
+        <div><label>CUST_NAME *</label><input value={f.name} onChange={set('name')} /></div>
         <div><label>CONT_PR *</label><input value={f.contact_person} onChange={set('contact_person')} placeholder="Contact person" /></div>
         <div><label>MOBILE_NO *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
       </div>

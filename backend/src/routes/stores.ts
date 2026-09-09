@@ -17,14 +17,19 @@ router.use(authenticate);
 router.get('/', listStores as any);
 router.get('/:id', getStore as any);
 router.post('/', requirePrivilege('store.manage'), validate(z.object({
-  // Customer Code is the store's single identifier and is mandatory for new
-  // stores. Enforced here, at the API layer, rather than as a NOT NULL that
-  // legacy rows predating the column would have failed.
-  customer_code: z.string().min(1),
+  // Shape only, and every field optional: which fields are MANDATORY is
+  // decided by normalizeStoreInput, which matches column names on spelling
+  // alone and reports each missing one by its template name (CUST_CD,
+  // CUST_NAME, ...). Requiring them here instead would reject a body that
+  // names its fields the way the template does, and would report
+  // "customer_code" for a column the operator knows as CUST_CD.
+  customer_code: z.string().optional(),
+  CUST_CD: z.string().optional(),
   // No longer collected: normalizeStoreInput defaults it to the customer code.
   // Still accepted so an older client or spreadsheet can set it explicitly.
   uid: z.string().min(1).optional(),
-  name: z.string().min(1),
+  name: z.string().optional(),
+  CUST_NAME: z.string().optional(),
   address: z.string().min(1).optional(),
   // The store form collects the same columns as the store template, so the
   // address arrives as ADDR_1..ADDR_5 and the four context columns as their
@@ -37,12 +42,18 @@ router.post('/', requirePrivilege('store.manage'), validate(z.object({
   ADDR_4: z.string().optional(),
   ADDR_5: z.string().optional(),
   HOS: z.string().optional(),
-  State_CD: z.string().optional(),
+  STATE_CD: z.string().optional(),
   CHANNEL: z.string().optional(),
   SUB_CHANNEL: z.string().optional(),
-  pincode: z.string().min(1),
-  lat: coord,
-  long: coord,
+  // Older clients spelled this State_CD. Both are declared so either passes
+  // validation; normalizeStoreInput matches them case-insensitively anyway.
+  State_CD: z.string().optional(),
+  pincode: z.string().optional(),
+  ADDR_POSTAL: z.string().optional(),
+  lat: coord.optional(),
+  long: coord.optional(),
+  LATITUDE: coord.optional(),
+  LONGITUDE: coord.optional(),
   contact_no: z.string().min(1).optional(),
   contact_email: z.string().min(1).optional(),
   contact_person: z.string().min(1).optional(),
@@ -50,7 +61,11 @@ router.post('/', requirePrivilege('store.manage'), validate(z.object({
   // Retained (not required): stores keep their vendor relationship, the store
   // creation form just no longer asks for it. New stores may have vendor_id NULL.
   vendor_id: z.string().uuid().optional(),
-})), createStore as any);
+  // Zod strips keys it does not know, which silently dropped a column whose
+  // header was cased differently (STATE_CD vs State_CD) and then reported it
+  // as missing. Passing unknown keys through lets normalizeStoreInput do the
+  // matching, where case and punctuation are ignored and only spelling counts.
+}).passthrough()), createStore as any);
 
 router.patch('/:id', requirePrivilege('store.manage'), validate(z.object({
   customer_code: z.string().min(1).optional(),
@@ -68,9 +83,12 @@ router.patch('/:id', requirePrivilege('store.manage'), validate(z.object({
   ADDR_4: z.string().optional(),
   ADDR_5: z.string().optional(),
   HOS: z.string().optional(),
-  State_CD: z.string().optional(),
+  STATE_CD: z.string().optional(),
   CHANNEL: z.string().optional(),
   SUB_CHANNEL: z.string().optional(),
+  // Older clients spelled this State_CD. Both are declared so either passes
+  // validation; normalizeStoreInput matches them case-insensitively anyway.
+  State_CD: z.string().optional(),
   pincode: z.string().min(1).optional(),
   lat: coord.optional(),
   long: coord.optional(),
@@ -79,7 +97,8 @@ router.patch('/:id', requirePrivilege('store.manage'), validate(z.object({
   contact_person: z.string().optional(),
   outlet_status: z.string().optional(),
   vendor_id: z.string().uuid().nullable().optional(),
-})), updateStore as any);
+  // Passed through for the same reason as the create schema above.
+}).passthrough()), updateStore as any);
 router.post('/:id/assignments', requireRole('rjcorp_admin', 'vendor_admin'), validate(z.object({ employee_id: z.string().uuid() })), assignEmployee as any);
 router.delete('/:id/assignments/:employee_id', requireRole('rjcorp_admin', 'vendor_admin'), removeAssignment as any);
 

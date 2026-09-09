@@ -117,6 +117,7 @@ Mobile `.env`: `EXPO_PUBLIC_API_URL` — use LAN IP (not localhost) for physical
 
 ## Key Constraints
 
+- **Column names: spelling only** — every bulk/template column name is matched case- and punctuation-insensitively (`columnLookup` in `backend/src/services/validation.ts`), so `CUST_CD`, `Cust_CD` and `cust cd` are one column. Fixed-vocabulary *values* (ROLE, TASK_TYPE, INSTALLATION_TYPE) and UIDs are matched the same way (`enumValue` / `uidKey` in `bulk.controller.ts`). Template headers are ALL-CAPS, and so are the keys stored in `stores.source_metadata` (`upperCaseKeys`) — read those back with `columnValue` (`web/src/lib/columns.ts`), never by exact key. Do not reintroduce an exact header match anywhere: it fails a sheet on a column it plainly contains. Actual SQL column names stay lower_snake_case.
 - **Camera only** — no gallery/image picker. All photo capture uses `expo-camera` (`CameraView.takePictureAsync`). This is intentional for proof-of-presence.
 - GPS is captured client-side at submission time and sent in the request body. The server records it as-is.
 - Roles in JWT payload: `employee` | `supervisor`. The `vendor_id` FK on users/stores exists for future multi-vendor support but is NULL in v1.

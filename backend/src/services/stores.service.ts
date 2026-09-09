@@ -1,6 +1,8 @@
 import { Pool, PoolClient } from 'pg';
 import { pool } from '../config/db';
-import { str, validateOptionalEmail, joinAddressParts, columnLookup } from './validation';
+import {
+  str, validateOptionalEmail, joinAddressParts, columnLookup, upperCaseKeys,
+} from './validation';
 
 /** Anything we can run a query on — the pool, or a client inside a transaction. */
 type Queryable = Pool | PoolClient;
@@ -120,7 +122,7 @@ export interface NormalizedStore {
  * from the source row is lost, and required because the store template requires
  * them — the onboarding form collects exactly the same set.
  */
-export const METADATA_COLUMNS = ['HOS', 'State_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
+export const METADATA_COLUMNS = ['HOS', 'STATE_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
 
 /**
  * Outlet statuses that mean "this store is not trading". Matched case- and
@@ -160,52 +162,66 @@ export function normalizeStoreInput(
 ): NormalizedStore {
   const errors: string[] = [];
 
+  // EVERY field is read through columnLookup, never by exact key. Column names
+  // are matched on spelling alone — case and punctuation are ignored — so
+  // `customer_code`, `CUSTOMER_CODE` and `Customer Code` are one field, and the
+  // template's own `CUST_CD` is accepted alongside it. A sheet or a form filled
+  // in with Caps Lock on therefore behaves exactly like any other.
+  const col = columnLookup(raw);
+  const fromMeta = columnLookup((raw.source_metadata ?? {}) as Record<string, unknown>);
+
   if (opts.requireMetadata) {
-    // Matched through columnLookup, not by exact key. The template headers are
-    // all-caps (STATE_CD) while this list is not, and an exact lookup made a
-    // valid sheet fail on a column it plainly contained. Both the row itself
-    // and source_metadata are searched, since the form sends these as ordinary
-    // fields while the importer nests the whole source row.
-    const fromRow = columnLookup(raw);
-    const fromMeta = columnLookup((raw.source_metadata ?? {}) as Record<string, unknown>);
+    // Context columns only: satisfied by the row (the form's own fields) or by
+    // what is already stored (an edit that does not touch them). The store
+    // fields below are read from the row alone — falling back to the source row
+    // there would let a stale imported value override a field the caller
+    // deliberately cleared.
     for (const key of METADATA_COLUMNS) {
-      if (!str(fromRow(key)) && !str(fromMeta(key))) errors.push(`${key} is required`);
+      if (!str(col(key)) && !str(fromMeta(key))) errors.push(`${key} is required`);
     }
   }
 
-  const customer_code = str(raw.customer_code);
+  // Each field lists the template's column name alongside the API field name,
+  // so one spelling is not privileged over the other.
+  const customer_code = str(col('customer_code', 'CUST_CD'));
   // Customer Code is the store's single identifier: it is what the console
   // shows and what every template collects. uid is no longer collected, but
   // tasks, images and older spreadsheets still look stores up by it, so it is
   // kept in step with the code rather than left empty. An explicitly supplied
   // uid still wins, which is what preserves existing values on update.
-  const uid = str(raw.uid) || customer_code;
-  const name = str(raw.name);
+  const uid = str(col('uid', 'CUST_UID')) || customer_code;
+  const name = str(col('name', 'CUST_NAME'));
   // The store form and the store template both supply the address as
   // ADDR_1..ADDR_5, so they are joined here rather than in either caller. A
   // pre-joined `address` still wins, which is what the bulk mapper passes.
-  const address = str(raw.address) ||
-    joinAddressParts([raw.ADDR_1, raw.ADDR_2, raw.ADDR_3, raw.ADDR_4, raw.ADDR_5]);
-  const pincode = str(raw.pincode);
+  const address = str(col('address')) ||
+    joinAddressParts([
+      col('ADDR_1'), col('ADDR_2'), col('ADDR_3'), col('ADDR_4'), col('ADDR_5'),
+    ]);
+  const pincode = str(col('pincode', 'ADDR_POSTAL'));
 
-  if (!customer_code) errors.push('customer_code (Customer Code) is required');
-  if (!name) errors.push('name is required');
-  if (!address) errors.push('address (ADDR_1) is required');
-  if (!pincode) errors.push('pincode is required');
+  // Reported by the template's own column name, since that is what the operator
+  // is looking at in the spreadsheet or on the form.
+  if (!customer_code) errors.push('CUST_CD (Customer Code) is required');
+  if (!name) errors.push('CUST_NAME (store name) is required');
+  if (!address) errors.push('ADDR_1 (address) is required');
+  if (!pincode) errors.push('ADDR_POSTAL (pincode) is required');
 
-  const lat = parseFloat(str(raw.lat));
-  const long = parseFloat(str(raw.long));
+  // LATTITUDE / LONGTITUDE are common misspellings in real exports.
+  const lat = parseFloat(str(col('lat', 'LATITUDE', 'LATTITUDE')));
+  const long = parseFloat(str(col('long', 'LONGITUDE', 'LONGTITUDE')));
   if (isNaN(lat) || isNaN(long)) {
-    errors.push('lat and long must be numbers');
+    errors.push('LATITUDE and LONGITUDE must be numbers');
   } else {
-    if (lat < -90 || lat > 90) errors.push('lat must be between -90 and 90');
-    if (long < -180 || long > 180) errors.push('long must be between -180 and 180');
+    if (lat < -90 || lat > 90) errors.push('LATITUDE must be between -90 and 90');
+    if (long < -180 || long > 180) errors.push('LONGITUDE must be between -180 and 180');
   }
 
-  const emailCheck = validateOptionalEmail(raw.contact_email, 'contact_email');
+  const rawEmail = str(col('contact_email'));
+  const emailCheck = validateOptionalEmail(rawEmail, 'CONTACT_EMAIL');
   if (!emailCheck.ok) errors.push(emailCheck.reason!);
-  if (opts.requireContactEmail && !str(raw.contact_email)) {
-    errors.push('contact_email is required');
+  if (opts.requireContactEmail && !rawEmail) {
+    errors.push('CONTACT_EMAIL is required');
   }
 
   const input: StoreInput = {
@@ -216,30 +232,35 @@ export function normalizeStoreInput(
     pincode,
     lat,
     long,
-    contact_no: str(raw.contact_no) || null,
+    contact_no: str(col('contact_no', 'MOBILE_NO')) || null,
     contact_email: emailCheck.value,
-    contact_person: str(raw.contact_person) || null,
-    outlet_status: str(raw.outlet_status) || null,
+    contact_person: str(col('contact_person', 'CONT_PR')) || null,
+    outlet_status: str(col('outlet_status', 'CUST_STATUS')) || null,
   };
   if (raw.vendor_id !== undefined) input.vendor_id = (raw.vendor_id as string) || null;
-  if (raw.source_metadata !== undefined) {
-    input.source_metadata = raw.source_metadata as Record<string, unknown> | null;
-  } else {
-    // The store form sends HOS / State_CD / CHANNEL / SUB_CHANNEL as ordinary
-    // fields; the bulk mapper sends the whole sheet row as source_metadata.
-    // Collect the form's version here so both channels persist the same
-    // context. Left unset when none were supplied, so an update that omits
-    // them does not wipe what is already stored.
-    const collected: Record<string, unknown> = {};
-    const pick = columnLookup(raw);
-    for (const key of METADATA_COLUMNS) {
-      // Case-insensitive for the same reason the check above is: the caller may
-      // send STATE_CD, State_CD or "state cd". Stored under the canonical name
-      // so what lands in source_metadata is consistent whatever was sent.
-      const v = str(pick(key));
-      if (v) collected[key] = v;
-    }
-    if (Object.keys(collected).length) input.source_metadata = collected;
+
+  // source_metadata keeps the source row verbatim, but its KEYS are stored
+  // canonically all-caps (CUST_CD, STATE_CD, ...) whatever casing the export or
+  // the form used. Everything downstream — the store edit form, reports — can
+  // then read a context column by its template name instead of guessing.
+  //
+  // The importer nests the whole sheet row; the store form sends the four
+  // context columns as ordinary fields. An edit is layered OVER the stored
+  // metadata rather than replacing it, so changing STATE_CD on the form
+  // actually sticks and the rest of the source row survives the edit.
+  const stored = raw.source_metadata === undefined
+    ? undefined
+    : upperCaseKeys((raw.source_metadata ?? {}) as Record<string, unknown>);
+  const edited: Record<string, unknown> = {};
+  for (const key of METADATA_COLUMNS) {
+    const v = str(col(key));
+    if (v) edited[key] = v;
+  }
+  if (stored !== undefined || Object.keys(edited).length) {
+    const merged = { ...(stored ?? {}), ...edited };
+    // Left unset when there is nothing at all, so an update that omits these
+    // does not wipe what is already stored.
+    input.source_metadata = Object.keys(merged).length ? merged : null;
   }
 
   return { input, errors };

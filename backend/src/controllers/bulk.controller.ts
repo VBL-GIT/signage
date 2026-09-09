@@ -12,7 +12,9 @@ import {
 import { generateTemporaryPassword } from '../services/password';
 import { sealPassword } from '../services/credential-vault';
 import { env } from '../config/env';
-import { columnLookup, emailDomain, joinAddressParts, validateEmail, validateOptionalEmail } from '../services/validation';
+import {
+  columnLookup, emailDomain, joinAddressParts, upperCaseKeys, validateEmail, validateOptionalEmail,
+} from '../services/validation';
 import {
   StoreInput,
   bulkUpsertStores,
@@ -53,6 +55,22 @@ async function fetchSheetRows(fileUrl: string): Promise<Record<string, unknown>[
 
 function str(v: unknown): string {
   return (v === undefined || v === null) ? '' : String(v).trim();
+}
+
+/**
+ * Normalise a cell that names one of a fixed set of values (a ROLE, a task
+ * type) so the sheet only has to get the SPELLING right: case is irrelevant and
+ * spaces or hyphens count as underscores. "EMPLOYEE", "Employee" and
+ * "employee" are the same role, which is what makes a template filled in with
+ * Caps Lock on import cleanly.
+ */
+function enumValue(v: unknown): string {
+  return str(v).toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+/** Case-insensitive key for looking a UID up — VND-001 and vnd-001 are one vendor. */
+function uidKey(v: unknown): string {
+  return str(v).toLowerCase();
 }
 
 const CHUNK = 500;
@@ -130,10 +148,11 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
   let rows: Record<string, unknown>[];
   try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
+  // Keyed case-insensitively: a sheet may spell the vendor UID vnd-001.
   const vendorByUid = new Map<string, { id: string; code: number }>();
   const vendorById = new Map<string, number>();
   const { rows: vendors } = await pool.query('SELECT id, uid, code FROM vendors');
-  for (const v of vendors) { vendorByUid.set(String(v.uid), { id: v.id, code: v.code }); vendorById.set(v.id, v.code); }
+  for (const v of vendors) { vendorByUid.set(uidKey(v.uid), { id: v.id, code: v.code }); vendorById.set(v.id, v.code); }
 
   const failed: RowError[] = [];
   interface Valid { row: number; name: string; first: string; last: string; email: string; password: string; role: UserRole; mobile: string | null; vendorId: string | null; }
@@ -146,11 +165,13 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
     const rowNum = i + 2;
     try {
       const col = columnLookup(r);
-      const rawRole = str(col('ROLE'));
+      // Matched on spelling only: EMPLOYEE, Employee and "vendor admin" all
+      // resolve, so a sheet filled in with Caps Lock on is not rejected.
+      const rawRole = enumValue(col('ROLE'));
       if (!VALID_ROLES.includes(rawRole as UserRole)) {
         throw new Error(
           rawRole
-            ? `Invalid ROLE "${rawRole}". Must be one of: ${VALID_ROLES.join(', ')}`
+            ? `Invalid ROLE "${str(col('ROLE'))}". Must be one of: ${VALID_ROLES.join(', ')}`
             : `ROLE is required. Must be one of: ${VALID_ROLES.join(', ')}`
         );
       }
@@ -160,7 +181,7 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
       // vendor, so they cannot be created through this template — use
       // Onboarding > Employee for those.
       if (!vendorUid) throw new Error('VENDOR_UID is required');
-      const bodyVendorId = vendorByUid.get(vendorUid)?.id ?? null;
+      const bodyVendorId = vendorByUid.get(uidKey(vendorUid))?.id ?? null;
       if (!bodyVendorId) throw new Error(`Unknown VENDOR_UID "${vendorUid}"`);
       const scope = resolveUserScope(req.user!, role, bodyVendorId);
 
@@ -303,13 +324,17 @@ export async function bulkUsers(req: AuthRequest, res: Response) {
 /**
  * Bulk create tasks from an Excel file (RJCorp admin only).
  * Each task type has its own template, so `kind` (recee | direct | direct_boarding)
- * fixes the type for every row and the sheet omits the task_type/installation_type
+ * fixes the type for every row and the sheet omits the TASK_TYPE/INSTALLATION_TYPE
  * columns. When `kind` is absent, the legacy combined format is read per-row.
- * Type-specific columns: vendor_uid, store_uid, pincode,
- *   target_pamphlet_count (direct), brand_name, artwork_name, width_in, height_in
- *   (direct_boarding). Board size is width_in / height_in (inches) → custom cm.
- * Store is identified by store_uid only — no store_name fallback, since names
- * can collide across vendors/stores while UIDs are unambiguous.
+ * Type-specific columns: VENDOR_UID, CUSTOMER_CODE, PINCODE,
+ *   TARGET_PAMPHLET_COUNT (direct), BRAND_NAME, ARTWORK_NAME, WIDTH_IN, HEIGHT_IN
+ *   (direct_boarding). Board size is WIDTH_IN / HEIGHT_IN (inches) → custom cm.
+ * Store is identified by CUSTOMER_CODE only — no store-name fallback, since names
+ * can collide across vendors/stores while codes are unambiguous.
+ *
+ * Column names are matched on spelling alone (columnLookup), and so are the
+ * values of fixed-vocabulary columns (enumValue) — a sheet filled in with Caps
+ * Lock on imports exactly like any other.
  */
 const INCH_TO_CM = 2.54;
 // kind → [task_type, installation_type]
@@ -326,7 +351,7 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
   try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const vendorByUid = new Map<string, string>();
-  for (const v of (await pool.query('SELECT id, uid FROM vendors')).rows) vendorByUid.set(String(v.uid), v.id);
+  for (const v of (await pool.query('SELECT id, uid FROM vendors')).rows) vendorByUid.set(uidKey(v.uid), v.id);
   // Stores are found by Customer Code, the identifier the templates now carry.
   // Legacy uids are loaded into the same map so spreadsheets saved from the
   // older store_uid templates keep resolving. Customer code is inserted second
@@ -368,13 +393,13 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
         [taskType, installationType] = fixedType;
       } else {
         // Legacy combined template: read the type from the row.
-        taskType = str(col('TASK_TYPE'));
-        if (!['recee', 'installation'].includes(taskType)) throw new Error(`Invalid task_type "${taskType}"`);
+        taskType = enumValue(col('TASK_TYPE'));
+        if (!['recee', 'installation'].includes(taskType)) throw new Error(`Invalid TASK_TYPE "${str(col('TASK_TYPE'))}"`);
         installationType = null;
         if (taskType === 'installation') {
-          installationType = str(col('INSTALLATION_TYPE'));
+          installationType = enumValue(col('INSTALLATION_TYPE'));
           if (installationType !== 'direct' && installationType !== 'direct_boarding') {
-            throw new Error('installation_type must be "direct" or "direct_boarding"');
+            throw new Error('INSTALLATION_TYPE must be "direct" or "direct_boarding"');
           }
         }
       }
@@ -387,7 +412,7 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
       }
 
       const vendorUid = str(col('VENDOR_UID'));
-      const vendorId = vendorUid ? vendorByUid.get(vendorUid) : null;
+      const vendorId = vendorUid ? vendorByUid.get(uidKey(vendorUid)) : null;
       if (!vendorId) throw new Error(`Unknown VENDOR_UID "${vendorUid}"`);
 
       let storeId: string | null = null;
@@ -400,19 +425,19 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
       let customW: number | null = null, customH: number | null = null;
       if (isBoarding) {
         const bn = str(col('BRAND_NAME'));
-        if (bn) { brandId = brandByName.get(bn.toLowerCase()) ?? null; if (!brandId) throw new Error(`Unknown brand_name "${bn}"`); }
+        if (bn) { brandId = brandByName.get(bn.toLowerCase()) ?? null; if (!brandId) throw new Error(`Unknown BRAND_NAME "${bn}"`); }
         const an = str(col('ARTWORK_NAME'));
         if (an) {
           if (!brandId) throw new Error('BRAND_NAME is required when ARTWORK_NAME is given');
           artworkId = artworkByBrandName.get(`${brandId}|${an.toLowerCase()}`) ?? null;
-          if (!artworkId) throw new Error(`Unknown artwork_name "${an}" for the given brand`);
+          if (!artworkId) throw new Error(`Unknown ARTWORK_NAME "${an}" for the given brand`);
         }
         // Board size as width_in x height_in (inches) -> stored as custom cm.
         const wStr = str(col('WIDTH_IN')), hStr = str(col('HEIGHT_IN'));
         if (wStr || hStr) {
           const w = parseFloat(wStr), h = parseFloat(hStr);
           if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) {
-            throw new Error('width_in and height_in must both be positive numbers (inches)');
+            throw new Error('WIDTH_IN and HEIGHT_IN must both be positive numbers (inches)');
           }
           customW = Math.round(w * INCH_TO_CM);
           customH = Math.round(h * INCH_TO_CM);
@@ -496,7 +521,10 @@ function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown>
     // State_CD, CHANNEL, SUB_CHANNEL and any extra columns a wider export
     // carries — has no field of its own but is kept in source_metadata.
     outlet_status: str(col('CUST_STATUS')),
-    source_metadata: r,
+    // Keys stored canonically all-caps (HOS, STATE_CD, CHANNEL, ...) whatever
+    // casing the export used, so the console can read a context column back by
+    // its template name instead of guessing how the source spelled it.
+    source_metadata: upperCaseKeys(r),
   };
 }
 
@@ -509,7 +537,7 @@ function fromCustomerMaster(r: Record<string, unknown>): Record<string, unknown>
  */
 const MASTER_REQUIRED: { label: string; accepts: string[] }[] = [
   { label: 'HOS', accepts: ['HOS'] },
-  { label: 'State_CD', accepts: ['State_CD'] },
+  { label: 'STATE_CD', accepts: ['STATE_CD'] },
   { label: 'CONT_PR', accepts: ['CONT_PR'] },
   { label: 'MOBILE_NO', accepts: ['MOBILE_NO'] },
   { label: 'CHANNEL', accepts: ['CHANNEL'] },
@@ -594,7 +622,7 @@ export async function bulkStores(req: AuthRequest, res: Response) {
     if (rs.length > 1) {
       for (const r of rs) {
         dupeRows.add(r);
-        failed.push({ row: r, reason: `Duplicate customer_code "${code}" in this file (also on row ${rs.filter((x) => x !== r).join(', ')})` });
+        failed.push({ row: r, reason: `Duplicate CUST_CD "${code}" in this file (also on row ${rs.filter((x) => x !== r).join(', ')})` });
       }
     }
   }
@@ -602,7 +630,7 @@ export async function bulkStores(req: AuthRequest, res: Response) {
     if (rs.length > 1) {
       for (const r of rs) {
         if (dupeRows.has(r)) continue; // already reported for a duplicate code
-        failed.push({ row: r, reason: `Duplicate uid "${uid}" in this file (also on row ${rs.filter((x) => x !== r).join(', ')})` });
+        failed.push({ row: r, reason: `Duplicate CUST_UID "${uid}" in this file (also on row ${rs.filter((x) => x !== r).join(', ')})` });
       }
     }
   }
@@ -657,7 +685,8 @@ export async function bulkStores(req: AuthRequest, res: Response) {
 // ----------------------------------------------------------------------------
 /**
  * Bulk create vendors from an Excel file (RJCorp admin only).
- * Columns: name (required), contact_person, contact_phone, contact_email. UID auto-generated (VND-NNN).
+ * Columns: COMPANY_NAME, CONTACT_PERSON, CONTACT_PHONE, CONTACT_EMAIL, REMARKS —
+ * all required, matched on spelling alone. UID auto-generated (VND-NNN).
  */
 export async function bulkVendors(req: AuthRequest, res: Response) {
   const { file_url } = req.body;

@@ -1,4 +1,10 @@
-"""Generates blank templates + filled samples for all 4 bulk-upload types.
+"""Generates blank templates + filled samples for all bulk-upload types.
+
+Every header is ALL-CAPS, matching the column names the console shows and the
+importer reports errors by. The casing is a convention, not a rule: the importer
+matches a header on its spelling alone (see CASE_RULE below, which every Guide
+sheet carries), so a sheet filled in with Caps Lock on imports the same way.
+
 Run: python docs/bulk-templates/generate_bulk_templates.py
 Outputs (in this folder): <type>_template.xlsx and <type>_sample.xlsx
 Each workbook has a 'Data' sheet (headers, or headers+samples) and a 'Guide' sheet.
@@ -56,7 +62,7 @@ SPECS = {
         ("FIRST_NAME", True, "Given name."),
         ("LAST_NAME", True, "Family name."),
         ("EMAIL", True, "Login email (unique)."),
-        ("ROLE", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user."),
+        ("ROLE", True, "employee | vendor_admin | vendor_user | rjcorp_admin | rjcorp_user. Matched on spelling only, so EMPLOYEE and Employee are equally valid."),
         ("MOBILE", True, "Mobile number."),
         ("VENDOR_UID", True, "Vendor the account belongs to. Must exist, e.g. VND-001. RJCorp accounts belong to no vendor and cannot be created from this template — use Onboarding > Employee for those."),
     ],
@@ -167,9 +173,19 @@ SAMPLES = {
 
 
 def autosize(ws):
-    for col in ws.columns:
-        width = max((len(str(c.value)) for c in col if c.value is not None), default=10)
-        ws.column_dimensions[col[0].column_letter].width = min(max(width + 2, 12), 45)
+    """Width each column to its longest value.
+
+    Indexed by column NUMBER rather than through col[0].column_letter: the Guide
+    sheet merges its first row for the case-rule banner, and a MergedCell has no
+    column_letter at all.
+    """
+    for ci in range(1, ws.max_column + 1):
+        letter = get_column_letter(ci)
+        width = max(
+            (len(str(c.value)) for c in ws[letter] if c.value is not None),
+            default=10,
+        )
+        ws.column_dimensions[letter].width = min(max(width + 2, 12), 45)
 
 
 def header_row(ws, spec):
@@ -184,16 +200,38 @@ def header_row(ws, spec):
     ws.freeze_panes = "A2"
 
 
+# Stated on every Guide sheet. The importer matches a header on its SPELLING
+# alone, so the all-caps headers below are a convention, not a requirement.
+CASE_RULE = (
+    "Column names are matched on SPELLING ONLY. Upper or lower case makes no difference, "
+    "and spaces, hyphens and underscores are treated the same - so CUST_CD, Cust_CD and "
+    "\"cust cd\" are the same column. The headers on the Data sheet are all-caps; keep the "
+    "wording, and the case is up to you. A sheet filled in with Caps Lock on uploads exactly "
+    "like any other. Do not rename, reorder or delete columns - only the wording identifies them."
+)
+
+
 def guide_sheet(wb, spec):
     ws = wb.create_sheet("Guide")
+    # Row 1 is the rule that applies to every column, before the per-column table.
+    rule = ws.cell(row=1, column=1, value=CASE_RULE)
+    rule.font = Font(bold=True)
+    rule.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=3)
+    ws.row_dimensions[1].height = 60
     heads = ["Column", "Required", "Notes"]
     for ci, h in enumerate(heads, start=1):
-        c = ws.cell(row=1, column=ci, value=h); c.font = HEAD_FONT; c.fill = HEAD_FILL
-    for ri, (col, req, note) in enumerate(spec, start=2):
+        c = ws.cell(row=2, column=ci, value=h); c.font = HEAD_FONT; c.fill = HEAD_FILL
+    for ri, (col, req, note) in enumerate(spec, start=3):
         ws.cell(row=ri, column=1, value=col).font = Font(bold=True)
         ws.cell(row=ri, column=2, value="Required" if req else "Optional")
         ws.cell(row=ri, column=3, value=note)
     autosize(ws)
+    # autosize measures the merged rule text too, which would blow column A out
+    # to its cap; the per-column names are what the width should follow.
+    ws.column_dimensions["A"].width = max(
+        (len(col) for col, _r, _n in spec), default=10
+    ) + 4
 
 
 def add_dropdowns(ws, spec, kind):
@@ -205,17 +243,20 @@ def add_dropdowns(ws, spec, kind):
     col_index = {col: ci for ci, (col, _req, _note) in enumerate(spec, start=1)}
     for col, options in cats.items():
         letter = get_column_letter(col_index[col])
+        # showErrorMessage stays OFF on purpose: the dropdown offers the values,
+        # but Excel must not REFUSE one that differs only in case. The importer
+        # matches these on spelling alone (EMPLOYEE == employee), so a cell
+        # typed with Caps Lock on is valid and blocking it here would be a
+        # barrier the server does not have.
         dv = DataValidation(
             type="list",
             formula1='"%s"' % ",".join(options),
             allow_blank=True,
-            showErrorMessage=True,
+            showErrorMessage=False,
             showInputMessage=True,
         )
-        dv.errorTitle = "Invalid value"
-        dv.error = "Pick one of: " + ", ".join(options)
         dv.promptTitle = col
-        dv.prompt = "Choose: " + ", ".join(options)
+        dv.prompt = "Choose: " + ", ".join(options) + " (case does not matter)"
         ws.add_data_validation(dv)
         dv.add(f"{letter}2:{letter}1000")
 

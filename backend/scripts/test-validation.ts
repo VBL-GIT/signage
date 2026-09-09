@@ -8,6 +8,8 @@ import {
   validateEmail,
   validateOptionalEmail,
   joinAddressParts,
+  canonicalColumnName,
+  upperCaseKeys,
 } from '../src/services/validation';
 import {
   resolveStoreIdentity,
@@ -136,7 +138,8 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, customer_code: '' }, {});
-  check('missing customer_code rejected', errors.some((e) => e.includes('customer_code')));
+  // Reported by the template's own column name — CUST_CD, not customer_code.
+  check('missing CUST_CD rejected', errors.some((e) => e.includes('CUST_CD')));
 }
 {
   // Customer Code is now the store's single identifier. uid is no longer
@@ -154,7 +157,7 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: 'abc' }, {});
-  check('non-numeric lat rejected', errors.some((e) => e.includes('lat')));
+  check('non-numeric LATITUDE rejected', errors.some((e) => e.includes('LATITUDE')));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: '99' }, {});
@@ -162,11 +165,11 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, contact_email: 'bad@@x.com' }, {});
-  check('invalid contact_email rejected', errors.some((e) => e.includes('contact_email')));
+  check('invalid CONTACT_EMAIL rejected', errors.some((e) => e.includes('CONTACT_EMAIL')));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, { requireContactEmail: true });
-  check('compact channel requires contact_email', errors.some((e) => e.includes('contact_email is required')));
+  check('compact channel requires CONTACT_EMAIL', errors.some((e) => e.includes('CONTACT_EMAIL is required')));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, { requireContactEmail: false });
@@ -296,6 +299,74 @@ const tryScope = (creator: { role: UserRole; vendor_id: string | null }, role: U
 {
   const r = tryScope(EMP, 'employee', 'vendor-A');
   check('an employee cannot create users at all', !r.ok);
+}
+
+console.log('\n== column names: spelling matters, case does not ==');
+{
+  // The store template's own all-caps headers, as a sheet row.
+  const capsRow = {
+    HOS: 'Rajesh Kumar', STATE_CD: 'MH', CUST_CD: 'YG000000026', CUST_NAME: 'BALAJI',
+    CONT_PR: 'Store Mgr', MOBILE_NO: '02233440001', ADDR_1: 'Plot 4', ADDR_POSTAL: '400601',
+    CHANNEL: 'GT', SUB_CHANNEL: 'Grocery', LATITUDE: '19.207875', LONGITUDE: '72.984682',
+    CUST_STATUS: 'ACTIVE',
+  };
+  const { input, errors } = normalizeStoreInput(capsRow, { requireMetadata: true });
+  check('all-caps template row imports', errors.length === 0, errors.join('; '));
+  check('CUST_CD -> customer_code', input.customer_code === 'YG000000026', input.customer_code);
+  check('CUST_NAME -> name', input.name === 'BALAJI', input.name);
+  check('ADDR_1 -> address', input.address === 'Plot 4', input.address);
+  check('ADDR_POSTAL -> pincode', input.pincode === '400601', input.pincode);
+  check('LATITUDE/LONGITUDE parsed', input.lat === 19.207875 && input.long === 72.984682);
+  check('CONT_PR/MOBILE_NO/CUST_STATUS mapped',
+    input.contact_person === 'Store Mgr' && input.contact_no === '02233440001' && input.outlet_status === 'ACTIVE');
+  check('context columns stored all-caps',
+    JSON.stringify(input.source_metadata) === JSON.stringify({ HOS: 'Rajesh Kumar', STATE_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery' }),
+    JSON.stringify(input.source_metadata));
+}
+{
+  // The same row in every other casing/punctuation a real export uses.
+  const mixedRow = {
+    hos: 'Rajesh Kumar', State_CD: 'MH', 'cust cd': 'YG000000026', Cust_name: 'BALAJI',
+    'cont-pr': 'Store Mgr', mobile_no: '02233440001', addr_1: 'Plot 4', 'Addr Postal': '400601',
+    channel: 'GT', 'sub channel': 'Grocery', LATTITUDE: '19.2', longtitude: '72.9',
+    cust_status: 'ACTIVE',
+  };
+  const { input, errors } = normalizeStoreInput(mixedRow, { requireMetadata: true });
+  check('mixed-case row imports identically', errors.length === 0, errors.join('; '));
+  check('mixed-case CUST_CD found', input.customer_code === 'YG000000026', input.customer_code);
+  check('misspelled LATTITUDE accepted', input.lat === 19.2, String(input.lat));
+  check('mixed-case context columns are stored all-caps',
+    JSON.stringify(input.source_metadata) === JSON.stringify({ HOS: 'Rajesh Kumar', STATE_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery' }),
+    JSON.stringify(input.source_metadata));
+}
+{
+  // A missing context column is still refused — spelling is what identifies it.
+  const { errors } = normalizeStoreInput(
+    { CUST_CD: 'YG1', CUST_NAME: 'X', ADDR_1: 'A', ADDR_POSTAL: '1', LATITUDE: '1', LONGITUDE: '1', HOS: 'h' },
+    { requireMetadata: true }
+  );
+  check('missing STATE_CD still reported', errors.some((e) => e.includes('STATE_CD')), errors.join('; '));
+}
+{
+  // Editing a context column must survive: the stored metadata is the base and
+  // the edited field is layered over it, whatever case either side used.
+  const { input } = normalizeStoreInput({
+    customer_code: 'YG1', name: 'X', address: 'A', pincode: '1', lat: '1', long: '1',
+    source_metadata: { HOS: 'old', State_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery', CUST_CD: 'YG1' },
+    HOS: 'new',
+  }, { requireMetadata: true });
+  const meta = input.source_metadata as Record<string, unknown>;
+  check('edited HOS overwrites the stored one', meta.HOS === 'new', String(meta.HOS));
+  check('stored State_CD is re-keyed to STATE_CD',
+    meta.STATE_CD === 'MH' && meta.State_CD === undefined, JSON.stringify(meta));
+  check('the rest of the source row survives an edit', meta.CUST_CD === 'YG1');
+}
+{
+  check('canonicalColumnName uppercases and underscores',
+    canonicalColumnName(' cust cd ') === 'CUST_CD' && canonicalColumnName('Cust-CD') === 'CUST_CD');
+  const keyed = upperCaseKeys({ Cust_CD: 'a', 'state cd': 'b' });
+  check('upperCaseKeys re-keys a whole row',
+    JSON.stringify(keyed) === JSON.stringify({ CUST_CD: 'a', STATE_CD: 'b' }), JSON.stringify(keyed));
 }
 
 console.log('\n== duplicate-email messages (unchanged behaviour) ==');

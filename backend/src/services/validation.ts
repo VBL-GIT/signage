@@ -196,3 +196,31 @@ export function columnLookup(r: Record<string, unknown>) {
     return '';
   };
 }
+
+/**
+ * Canonical, all-caps form of a column name: "Cust_CD", "cust cd" and
+ * " cust-cd " all become "CUST_CD".
+ *
+ * Used when a column name is WRITTEN rather than read — the keys of
+ * stores.source_metadata, which is the one place a sheet's own header text is
+ * persisted. Storing them canonically means the console can look a context
+ * column up by name instead of guessing which casing the source export used.
+ */
+export function canonicalColumnName(key: string): string {
+  return key.trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase();
+}
+
+/**
+ * Re-key an object so every column name is canonical all-caps.
+ *
+ * First occurrence wins, so a sheet carrying both "Cust_CD" and "CUST_CD"
+ * keeps the leftmost — the same rule columnLookup applies when reading.
+ */
+export function upperCaseKeys(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const key = canonicalColumnName(k) || k;
+    if (!(key in out)) out[key] = v;
+  }
+  return out;
+}

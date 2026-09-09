@@ -6,6 +6,7 @@ import { SIGNAGE_TYPES, SIGNAGE_TYPE_LABELS } from '../types';
 import { TaskBadge, Button, Card, Spinner, ErrorBanner } from '../components/ui';
 import { useHasPrivilege } from '../store/auth';
 import { apiError } from '../api/client';
+import { columnValue } from '../lib/columns';
 
 const TYPE_LABEL: Record<string, string> = {
   recee: 'Recee', post_recee: 'Installation (from recee)',
@@ -40,10 +41,15 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
     // rather than in columns of their own, and are prefilled from it — blank on
     // stores imported before they were collected, which must then be filled in
     // before the store can be saved.
-    HOS: String((store.source_metadata as Record<string, unknown> | null)?.HOS ?? ''),
-    State_CD: String((store.source_metadata as Record<string, unknown> | null)?.State_CD ?? ''),
-    CHANNEL: String((store.source_metadata as Record<string, unknown> | null)?.CHANNEL ?? ''),
-    SUB_CHANNEL: String((store.source_metadata as Record<string, unknown> | null)?.SUB_CHANNEL ?? ''),
+    //
+    // Read by spelling, not by exact key: new imports store these all-caps
+    // (STATE_CD) while older ones carry whatever casing the source sheet used
+    // (State_CD, "state cd"). An exact lookup showed a value that is plainly
+    // stored as blank, and saving the form then had to re-enter it.
+    HOS: columnValue(store.source_metadata, 'HOS'),
+    STATE_CD: columnValue(store.source_metadata, 'STATE_CD'),
+    CHANNEL: columnValue(store.source_metadata, 'CHANNEL'),
+    SUB_CHANNEL: columnValue(store.source_metadata, 'SUB_CHANNEL'),
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const [err, setErr] = useState<string | null>(null);
@@ -65,7 +71,7 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
         address: f.address.trim(), pincode: f.pincode.trim(), lat, long,
         contact_no: f.contact_no.trim(), contact_email: f.contact_email.trim(),
         contact_person: f.contact_person.trim(), outlet_status: f.outlet_status.trim(),
-        HOS: f.HOS.trim(), State_CD: f.State_CD.trim(),
+        HOS: f.HOS.trim(), STATE_CD: f.STATE_CD.trim(),
         CHANNEL: f.CHANNEL.trim(), SUB_CHANNEL: f.SUB_CHANNEL.trim(),
       });
       onSaved(saved);
@@ -78,22 +84,22 @@ function StoreEditCard({ store, onSaved }: { store: Store; onSaved: (s: Store) =
       <ErrorBanner msg={err} />
       <div className="grid2">
         <div><label>HOS *</label><input value={f.HOS} onChange={set('HOS')} /></div>
-        <div><label>State_CD *</label><input value={f.State_CD} onChange={set('State_CD')} /></div>
-        <div><label>Customer Code *</label><input value={f.customer_code} onChange={set('customer_code')} /></div>
+        <div><label>STATE_CD *</label><input value={f.STATE_CD} onChange={set('STATE_CD')} /></div>
+        <div><label>CUST_CD (Customer Code) *</label><input value={f.customer_code} onChange={set('customer_code')} /></div>
         <div><label>CUST_STATUS *</label><input value={f.outlet_status} onChange={set('outlet_status')} /></div>
         <div><label>CHANNEL *</label><input value={f.CHANNEL} onChange={set('CHANNEL')} /></div>
         <div><label>SUB_CHANNEL *</label><input value={f.SUB_CHANNEL} onChange={set('SUB_CHANNEL')} /></div>
       </div>
-      <label>Name *</label><input value={f.name} onChange={set('name')} />
-      <label>Address *</label><input value={f.address} onChange={set('address')} />
+      <label>CUST_NAME *</label><input value={f.name} onChange={set('name')} />
+      <label>ADDR_1 (Address) *</label><input value={f.address} onChange={set('address')} />
       <div className="grid2">
-        <div><label>Pincode *</label><input value={f.pincode} onChange={set('pincode')} /></div>
-        <div><label>Latitude *</label><input value={f.lat} onChange={set('lat')} /></div>
-        <div><label>Longitude *</label><input value={f.long} onChange={set('long')} /></div>
-        <div><label>Contact Person *</label><input value={f.contact_person} onChange={set('contact_person')} /></div>
-        <div><label>Contact No *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
+        <div><label>ADDR_POSTAL (Pincode) *</label><input value={f.pincode} onChange={set('pincode')} /></div>
+        <div><label>LATITUDE *</label><input value={f.lat} onChange={set('lat')} /></div>
+        <div><label>LONGITUDE *</label><input value={f.long} onChange={set('long')} /></div>
+        <div><label>CONT_PR (Contact Person) *</label><input value={f.contact_person} onChange={set('contact_person')} /></div>
+        <div><label>MOBILE_NO (Contact No) *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
       </div>
-      <label>Contact Email</label><input value={f.contact_email} onChange={set('contact_email')} />
+      <label>CONTACT_EMAIL</label><input value={f.contact_email} onChange={set('contact_email')} />
       <p className="meta" style={{ marginTop: 6 }}>
         The store's vendor mapping is not changed here.
       </p>

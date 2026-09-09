@@ -111,8 +111,10 @@ export interface StoreWritePayload {
   // them. `address` remains accepted for older callers that pre-join it.
   address?: string;
   ADDR_1?: string; ADDR_2?: string; ADDR_3?: string; ADDR_4?: string; ADDR_5?: string;
-  // No store column of their own — the server files these into source_metadata.
-  HOS?: string; State_CD?: string; CHANNEL?: string; SUB_CHANNEL?: string;
+  // No store column of their own — the server files these into source_metadata,
+  // under these all-caps names. The server matches column names on spelling
+  // alone, so the casing here only decides how the keys are stored.
+  HOS?: string; STATE_CD?: string; CHANNEL?: string; SUB_CHANNEL?: string;
 }
 /**
  * Create a store, or update the existing one when its Customer Code is already
