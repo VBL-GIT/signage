@@ -120,7 +120,13 @@ export interface NormalizedStore {
  * from the source row is lost, and required because the store template requires
  * them — the onboarding form collects exactly the same set.
  */
-export const METADATA_COLUMNS = ['HOS', 'State_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
+// All-caps, like the template headers and every other column name shown in the
+// console. Only the canonical spelling changes: these are matched through
+// columnLookup, so a sheet or a client sending State_CD, state_cd or "state cd"
+// still lands on the same column, and stores imported before this keep whatever
+// spelling their source row used inside source_metadata (readers there look the
+// key up case-insensitively for exactly that reason).
+export const METADATA_COLUMNS = ['HOS', 'STATE_CD', 'CHANNEL', 'SUB_CHANNEL'] as const;
 
 /**
  * Outlet statuses that mean "this store is not trading". Matched case- and
@@ -146,17 +152,18 @@ export function isStoreInactive(outletStatus: unknown): boolean {
  * Collects ALL problems rather than throwing on the first, so a bulk row can
  * report everything wrong with it in a single pass.
  *
- * `requireContactEmail` is false for the customer-master channel: that export
- * has no email column at all, so demanding one would make the whole file
- * unimportable.
+ * CONTACT_EMAIL is never required, by any channel, and there is deliberately no
+ * option to make it so: the customer-master export has no email column at all,
+ * and the store form labels it optional. An address that IS supplied is still
+ * held to the syntax and typo rules.
  *
- * `requireMetadata` enforces HOS / State_CD / CHANNEL / SUB_CHANNEL. Both the
+ * `requireMetadata` enforces HOS / STATE_CD / CHANNEL / SUB_CHANNEL. Both the
  * store form and the store template collect them, so both pass it — this is
  * what stops the two drifting apart again.
  */
 export function normalizeStoreInput(
   raw: Record<string, unknown>,
-  opts: { requireContactEmail?: boolean; requireMetadata?: boolean } = {}
+  opts: { requireMetadata?: boolean } = {}
 ): NormalizedStore {
   const errors: string[] = [];
 
@@ -173,40 +180,59 @@ export function normalizeStoreInput(
     }
   }
 
-  const customer_code = str(raw.customer_code);
+  // Every field below is read through columnLookup, not by exact key, for the
+  // same reason the metadata check above is: a spreadsheet row arrives with
+  // whatever casing and punctuation its author used. An exact `raw.customer_code`
+  // meant a sheet headed CUSTOMER_CODE, "Customer Code" or NAME failed EVERY
+  // row on columns it plainly contained — and reported them as missing, which
+  // reads as bad data rather than an unmatched header. The API bodies send the
+  // canonical lowercase names, which normalise to the same keys, so both
+  // callers are matched by one lookup.
+  //
+  // Where a genuinely different spelling exists, the alternatives are listed
+  // and the first present wins: the customer master's own CUST_CD / CUST_NAME /
+  // ADDR_POSTAL / LATITUDE, which is what lets a store sheet import whichever
+  // layout it was saved in.
+  const col = columnLookup(raw);
+  const customer_code = str(col('customer_code', 'CUST_CD'));
   // Customer Code is the store's single identifier: it is what the console
   // shows and what every template collects. uid is no longer collected, but
   // tasks, images and older spreadsheets still look stores up by it, so it is
   // kept in step with the code rather than left empty. An explicitly supplied
   // uid still wins, which is what preserves existing values on update.
-  const uid = str(raw.uid) || customer_code;
-  const name = str(raw.name);
+  const uid = str(col('uid', 'CUST_UID')) || customer_code;
+  const name = str(col('name', 'CUST_NAME'));
   // The store form and the store template both supply the address as
   // ADDR_1..ADDR_5, so they are joined here rather than in either caller. A
   // pre-joined `address` still wins, which is what the bulk mapper passes.
-  const address = str(raw.address) ||
-    joinAddressParts([raw.ADDR_1, raw.ADDR_2, raw.ADDR_3, raw.ADDR_4, raw.ADDR_5]);
-  const pincode = str(raw.pincode);
+  const address = str(col('address')) ||
+    joinAddressParts([col('ADDR_1'), col('ADDR_2'), col('ADDR_3'), col('ADDR_4'), col('ADDR_5')]);
+  const pincode = str(col('pincode', 'ADDR_POSTAL'));
 
-  if (!customer_code) errors.push('customer_code (Customer Code) is required');
-  if (!name) errors.push('name is required');
-  if (!address) errors.push('address (ADDR_1) is required');
-  if (!pincode) errors.push('pincode is required');
+  // Reported under the column names the template and the store form both use,
+  // in caps — the person fixing the row is looking at CUST_CD in a spreadsheet,
+  // not at customer_code in a database.
+  if (!customer_code) errors.push('CUST_CD (Customer Code) is required');
+  if (!name) errors.push('CUST_NAME is required');
+  if (!address) errors.push('ADDR_1 is required');
+  if (!pincode) errors.push('ADDR_POSTAL (Pincode) is required');
 
-  const lat = parseFloat(str(raw.lat));
-  const long = parseFloat(str(raw.long));
+  // LATTITUDE / LONGTITUDE are common misspellings in real exports; accepted
+  // here for the same reason the customer-master mapper accepts them.
+  const lat = parseFloat(str(col('lat', 'LATITUDE', 'LATTITUDE')));
+  const long = parseFloat(str(col('long', 'LONGITUDE', 'LONGTITUDE')));
   if (isNaN(lat) || isNaN(long)) {
-    errors.push('lat and long must be numbers');
+    errors.push('LATITUDE and LONGITUDE must be numbers');
   } else {
-    if (lat < -90 || lat > 90) errors.push('lat must be between -90 and 90');
-    if (long < -180 || long > 180) errors.push('long must be between -180 and 180');
+    if (lat < -90 || lat > 90) errors.push('LATITUDE must be between -90 and 90');
+    if (long < -180 || long > 180) errors.push('LONGITUDE must be between -180 and 180');
   }
 
-  const emailCheck = validateOptionalEmail(raw.contact_email, 'contact_email');
+  // CONTACT_EMAIL is optional everywhere: blank saves as NULL, and only a
+  // non-empty address is held to the syntax + typo rules.
+  const contact_email = col('contact_email');
+  const emailCheck = validateOptionalEmail(contact_email, 'CONTACT_EMAIL');
   if (!emailCheck.ok) errors.push(emailCheck.reason!);
-  if (opts.requireContactEmail && !str(raw.contact_email)) {
-    errors.push('contact_email is required');
-  }
 
   const input: StoreInput = {
     customer_code,
@@ -216,10 +242,10 @@ export function normalizeStoreInput(
     pincode,
     lat,
     long,
-    contact_no: str(raw.contact_no) || null,
+    contact_no: str(col('contact_no', 'MOBILE_NO')) || null,
     contact_email: emailCheck.value,
-    contact_person: str(raw.contact_person) || null,
-    outlet_status: str(raw.outlet_status) || null,
+    contact_person: str(col('contact_person', 'CONT_PR')) || null,
+    outlet_status: str(col('outlet_status', 'CUST_STATUS')) || null,
   };
   if (raw.vendor_id !== undefined) input.vendor_id = (raw.vendor_id as string) || null;
   if (raw.source_metadata !== undefined) {
@@ -231,12 +257,11 @@ export function normalizeStoreInput(
     // context. Left unset when none were supplied, so an update that omits
     // them does not wipe what is already stored.
     const collected: Record<string, unknown> = {};
-    const pick = columnLookup(raw);
     for (const key of METADATA_COLUMNS) {
       // Case-insensitive for the same reason the check above is: the caller may
       // send STATE_CD, State_CD or "state cd". Stored under the canonical name
       // so what lands in source_metadata is consistent whatever was sent.
-      const v = str(pick(key));
+      const v = str(col(key));
       if (v) collected[key] = v;
     }
     if (Object.keys(collected).length) input.source_metadata = collected;

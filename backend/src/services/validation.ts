@@ -196,3 +196,170 @@ export function columnLookup(r: Record<string, unknown>) {
     return '';
   };
 }
+
+// ----------------------------------------------------------------------------
+// Which sheet is this?
+//
+// Every bulk channel validates row by row, so a sheet uploaded on the wrong tab
+// failed EVERY row on "X is required" — a 15-row vendor list reported as 75
+// missing store fields, which reads as bad data when the data is fine and only
+// the tab is wrong. These signatures let a channel recognise a sheet that
+// cannot possibly be its own and say so once, before validating anything.
+//
+// Matched through the same normalisation columnLookup uses, so casing and
+// punctuation are irrelevant. Overlap between the lists is harmless: a channel
+// only refuses a file when it recognises NONE of its own columns.
+export const SHEET_SHAPES: { label: string; tab: string; columns: string[] }[] = [
+  { label: 'Stores', tab: 'Stores', columns:
+    ['CUST_CD', 'CUSTOMER_CODE', 'CUST_NAME', 'ADDR_1', 'ADDR_POSTAL', 'PINCODE', 'LATITUDE', 'LAT', 'CUST_STATUS'] },
+  { label: 'Vendors', tab: 'Vendors', columns:
+    ['COMPANY_NAME', 'CONTACT_PERSON', 'CONTACT_PHONE', 'REMARKS'] },
+  { label: 'Employees', tab: 'Employees', columns:
+    ['FIRST_NAME', 'LAST_NAME', 'ROLE', 'MOBILE'] },
+  { label: 'Tasks', tab: 'Tasks', columns:
+    ['VENDOR_UID', 'TARGET_PAMPHLET_COUNT', 'BRAND_NAME', 'ARTWORK_NAME', 'WIDTH_IN', 'HEIGHT_IN'] },
+];
+
+/**
+ * Every column name each channel understands, including the spellings kept for
+ * older sheets and the misspellings seen in real exports. Casing and
+ * punctuation are irrelevant — these are compared through the same
+ * normalisation columnLookup uses.
+ *
+ * This list exists to tell two different situations apart. A header this
+ * channel simply does not use is FINE: the customer master carries dozens of
+ * columns that have no field here and are kept verbatim in source_metadata, so
+ * rejecting unknown headers would reject the real export. A header that is a
+ * near-miss of one of these, though — CUSTMER_CODE, COMPANY_NAM, MOBILE_N — is
+ * a typo, and silently ignoring it drops a column the operator believes they
+ * filled in.
+ */
+const KNOWN_COLUMNS: Record<string, string[]> = {
+  Stores: [
+    'HOS', 'STATE_CD', 'CUST_CD', 'CUST_UID', 'CUST_NAME', 'CONT_PR', 'MOBILE_NO',
+    'ADDR_1', 'ADDR_2', 'ADDR_3', 'ADDR_4', 'ADDR_5', 'ADDR_POSTAL',
+    'CHANNEL', 'SUB_CHANNEL', 'LATITUDE', 'LONGITUDE', 'CUST_STATUS',
+    // Accepted spellings: the older compact template, and misspellings that
+    // appear in genuine exports.
+    'CUSTOMER_CODE', 'NAME', 'ADDRESS', 'PINCODE', 'LAT', 'LONG', 'LATTITUDE', 'LONGTITUDE',
+    'CONTACT_PERSON', 'CONTACT_NO', 'CONTACT_EMAIL', 'OUTLET_STATUS', 'UID', 'VENDOR_ID',
+  ],
+  Vendors: ['COMPANY_NAME', 'NAME', 'CONTACT_PERSON', 'CONTACT_PHONE', 'CONTACT_EMAIL', 'REMARKS'],
+  Employees: ['FIRST_NAME', 'LAST_NAME', 'EMAIL', 'ROLE', 'MOBILE', 'VENDOR_UID'],
+  Tasks: [
+    'VENDOR_UID', 'CUSTOMER_CODE', 'CUST_CD', 'PINCODE', 'TARGET_PAMPHLET_COUNT',
+    'BRAND_NAME', 'ARTWORK_NAME', 'WIDTH_IN', 'HEIGHT_IN',
+  ],
+};
+
+/**
+ * Edit distance, capped early — only small distances interest us.
+ *
+ * Damerau rather than plain Levenshtein: swapping two adjacent letters costs
+ * ONE edit, because that is the commonest typo of all and Levenshtein scores it
+ * as two. "MOBIEL" for MOBILE is a single slip and has to read as one.
+ */
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev2: number[] = [];
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      // Adjacent transposition.
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        cur[j] = Math.min(cur[j], prev2[j - 2] + 1);
+      }
+    }
+    if (Math.min(...cur) > max) return max + 1;
+    prev2 = prev;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Reject a sheet whose header row contains a MISSPELLED column name.
+ *
+ * Casing and punctuation never matter — cust_cd, Cust_CD and "CUST CD" are the
+ * same column and all import. What is refused is a header close enough to a
+ * real column to be a typo of it: that column would otherwise be silently
+ * ignored, and the row would fail (or import incomplete) for a reason the
+ * operator cannot see from the message.
+ *
+ * Headers that are nothing like any known column are left alone, because a real
+ * customer-master export is full of them and they are kept as source data.
+ */
+export function assertHeaderSpelling(rows: Record<string, unknown>[], channel: string): void {
+  if (!rows.length) return;
+  const known = KNOWN_COLUMNS[channel];
+  if (!known) return;
+  const knownNorm = new Set(known.map(normHeader));
+
+  const typos: string[] = [];
+  for (const header of Object.keys(rows[0])) {
+    const n = normHeader(header);
+    // Blank and exactly-matching headers are fine. A very short header is
+    // skipped too: at 4 characters or fewer almost anything is within one edit
+    // of something, and "HOS" or "LAT" would start accusing each other.
+    if (!n || knownNorm.has(n) || n.length <= 4) continue;
+    // One edit for a short-ish name, two once there is enough of it to be sure
+    // the operator meant that column.
+    const allowed = n.length >= 8 ? 2 : 1;
+    let best: { col: string; d: number } | null = null;
+    for (const col of known) {
+      const d = editDistance(n, normHeader(col), allowed);
+      if (d <= allowed && (!best || d < best.d)) best = { col, d };
+    }
+    if (best) typos.push(`"${header}" — did you mean ${best.col}?`);
+  }
+
+  if (typos.length) {
+    throw new Error(
+      `${typos.length === 1 ? 'A column name looks misspelled' : 'Some column names look misspelled'}: ` +
+      `${typos.join('; ')}. Column names are matched ignoring case and punctuation, so any casing is fine — ` +
+      `only the spelling has to match the template.`
+    );
+  }
+}
+
+const normHeader = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** How many of `columns` a sheet's header row actually contains. */
+function shapeScore(headers: Set<string>, columns: string[]): number {
+  return columns.filter((c) => headers.has(normHeader(c))).length;
+}
+
+/**
+ * Throw a single clear error when `rows` cannot be the sheet `expected` names —
+ * i.e. the header row contains none of that channel's own columns.
+ *
+ * Names the tab the file does belong on when another signature matches it, so
+ * the operator's next action is one click rather than a guess. Deliberately
+ * silent when the sheet is merely incomplete: a missing column on an otherwise
+ * recognised sheet is a row-level problem, and stays reported per row, where it
+ * says which rows to fix.
+ */
+export function assertSheetShape(rows: Record<string, unknown>[], expected: string): void {
+  if (!rows.length) return;
+  const shape = SHEET_SHAPES.find((s) => s.label === expected);
+  if (!shape) return;
+  const headers = new Set(Object.keys(rows[0]).map(normHeader));
+  if (shapeScore(headers, shape.columns)) return;
+
+  const found = Object.keys(rows[0]).filter((h) => str(h)).slice(0, 6).join(', ');
+  const other = SHEET_SHAPES
+    .filter((s) => s.label !== expected)
+    .map((s) => ({ s, n: shapeScore(headers, s.columns) }))
+    .sort((a, b) => b.n - a.n)[0];
+
+  const whose = other && other.n >= 2
+    ? `It looks like the ${other.s.label} sheet — upload it on the ${other.s.tab} tab.`
+    : `Download the ${shape.label} template and fill your rows into it.`;
+  throw new Error(
+    `This file does not look like a ${expected} sheet: none of the ${expected} columns are in it. ` +
+    `${whose} Columns found: ${found || '(none)'}.`
+  );
+}

@@ -29,9 +29,41 @@ const DEFAULTS: Record<UserRole, Privilege[]> = {
   employee: [],                                                  // mobile only
 };
 
+/**
+ * Privileges that belong to rjcorp_admin alone, whatever custom role an
+ * rjcorp_user is given.
+ *
+ * This is what makes the head-office hierarchy an actual hierarchy rather than
+ * a matter of which role someone happened to assign. An rjcorp_user that could
+ * create accounts, toggle them or edit roles could hand itself every remaining
+ * privilege — including through a new account of its own — so account and role
+ * administration stays one level up. Everything operational (create, assign and
+ * approve tasks, stores, artworks, vendors) is still grantable, which is how an
+ * rjcorp_user ends up with real authority but strictly less than an admin's.
+ *
+ * Vendor-scoped roles are unaffected: a vendor_admin keeps user.manage and
+ * user.status, which the controllers already confine to its own vendor.
+ */
+export const RJCORP_ADMIN_ONLY: Privilege[] = ['user.manage', 'user.status', 'role.manage'];
+
 /** True for head-office accounts that see/act across all vendors. */
 export function isHeadOffice(role: UserRole): boolean {
   return role === 'rjcorp_admin' || role === 'rjcorp_user';
+}
+
+/**
+ * Apply the role ceiling to a privilege list. Pure, so the hierarchy can be
+ * tested without a database.
+ *
+ * Only rjcorp_user is capped, and deliberately so: it is the one role whose
+ * privileges are composed at runtime from a custom role. Every other role has a
+ * fixed set decided here, and a vendor_admin's user.manage / user.status are
+ * part of it — the controllers confine those to its own vendor, so stripping
+ * them would take away staff management a vendor admin is meant to have.
+ */
+export function capPrivileges(role: UserRole, privileges: Privilege[]): Privilege[] {
+  if (role !== 'rjcorp_user') return privileges;
+  return privileges.filter((p) => !RJCORP_ADMIN_ONLY.includes(p));
 }
 
 /** Resolve a user's effective privilege set. rjcorp_user pulls from its custom role. */
@@ -44,7 +76,9 @@ export async function getEffectivePrivileges(user: { id: string; role: UserRole 
        WHERE u.id = $1`,
       [user.id]
     );
-    return (rows[0]?.privileges ?? []) as Privilege[];
+    // Capped, not trusted: a role saved before the ceiling existed (or edited
+    // directly in the database) must not lift an rjcorp_user to admin.
+    return capPrivileges(user.role, (rows[0]?.privileges ?? []) as Privilege[]);
   }
   return DEFAULTS[user.role] ?? [];
 }

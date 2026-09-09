@@ -8,12 +8,22 @@ import {
   validateEmail,
   validateOptionalEmail,
   joinAddressParts,
+  assertSheetShape,
+  assertHeaderSpelling,
 } from '../src/services/validation';
 import {
   resolveStoreIdentity,
   normalizeStoreInput,
   IdentityLookup,
 } from '../src/services/stores.service';
+import {
+  ALL_PRIVILEGES,
+  RJCORP_ADMIN_ONLY,
+  capPrivileges,
+  type Privilege,
+} from '../src/auth/privileges';
+import { validate } from '../src/middleware/validate';
+import { storeCreateBody } from '../src/routes/stores';
 import { generateTemporaryPassword } from '../src/services/password';
 import { buildCredentialsEmail } from '../src/services/email.service';
 import { resolveUserScope, duplicateEmailMessage } from '../src/services/users.service';
@@ -131,12 +141,12 @@ const baseRow = {
   pincode: '400601', lat: '19.207875', long: '72.984682', contact_email: 'a@b.com',
 };
 {
-  const { errors } = normalizeStoreInput(baseRow, { requireContactEmail: true });
+  const { errors } = normalizeStoreInput(baseRow, {});
   check('valid row has no errors', errors.length === 0, errors.join('; '));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, customer_code: '' }, {});
-  check('missing customer_code rejected', errors.some((e) => e.includes('customer_code')));
+  check('missing CUST_CD rejected', errors.some((e) => e.includes('CUST_CD')), errors.join('; '));
 }
 {
   // Customer Code is now the store's single identifier. uid is no longer
@@ -154,7 +164,7 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: 'abc' }, {});
-  check('non-numeric lat rejected', errors.some((e) => e.includes('lat')));
+  check('non-numeric LATITUDE rejected', errors.some((e) => e.includes('LATITUDE')), errors.join('; '));
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, lat: '99' }, {});
@@ -162,15 +172,40 @@ const baseRow = {
 }
 {
   const { errors } = normalizeStoreInput({ ...baseRow, contact_email: 'bad@@x.com' }, {});
-  check('invalid contact_email rejected', errors.some((e) => e.includes('contact_email')));
+  check('invalid CONTACT_EMAIL rejected', errors.some((e) => e.includes('CONTACT_EMAIL')), errors.join('; '));
 }
 {
-  const { errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, { requireContactEmail: true });
-  check('compact channel requires contact_email', errors.some((e) => e.includes('contact_email is required')));
+  // CONTACT_EMAIL is optional on every channel, and there is no longer an
+  // option to demand it: a blank one must never stop a store being saved.
+  const { input, errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, {});
+  check('a blank CONTACT_EMAIL is accepted', errors.length === 0, errors.join('; '));
+  check('and is stored as NULL', input.contact_email === null, String(input.contact_email));
 }
 {
-  const { errors } = normalizeStoreInput({ ...baseRow, contact_email: '' }, { requireContactEmail: false });
-  check('customer-master channel does not require contact_email', errors.length === 0, errors.join('; '));
+  const { errors } = normalizeStoreInput({ ...baseRow, contact_person: '', contact_no: '' }, {});
+  check('blank CONT_PR / MOBILE_NO are accepted', errors.length === 0, errors.join('; '));
+}
+
+// The context columns are canonically STATE_CD now, in caps like the template.
+// Renaming the canonical spelling must not reject sheets or clients still
+// sending the old one.
+{
+  const withOldSpelling = { ...baseRow, HOS: 'Rajesh', State_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery' };
+  const { input, errors } = normalizeStoreInput(withOldSpelling, { requireMetadata: true });
+  check('State_CD still satisfies STATE_CD', errors.length === 0, errors.join('; '));
+  check('and is stored under the canonical caps name',
+    (input.source_metadata as Record<string, unknown>)?.STATE_CD === 'MH',
+    JSON.stringify(input.source_metadata));
+}
+{
+  const capsSpelling = { ...baseRow, HOS: 'Rajesh', STATE_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery' };
+  const { errors } = normalizeStoreInput(capsSpelling, { requireMetadata: true });
+  check('STATE_CD satisfies STATE_CD', errors.length === 0, errors.join('; '));
+}
+{
+  const { errors } = normalizeStoreInput({ ...baseRow, HOS: 'Rajesh', CHANNEL: 'GT', SUB_CHANNEL: 'G' }, { requireMetadata: true });
+  check('a missing context column is named in caps',
+    errors.some((e) => e === 'STATE_CD is required'), errors.join('; '));
 }
 {
   const { input } = normalizeStoreInput(baseRow, {});
@@ -179,6 +214,256 @@ const baseRow = {
 {
   const { errors } = normalizeStoreInput({ ...baseRow, name: '', address: '', pincode: '' }, {});
   check('collects ALL problems, not just the first', errors.length >= 3, errors.join('; '));
+}
+
+// Header matching. A sheet arrives with whatever casing and punctuation its
+// author used; an exact-key lookup reported every column of a perfectly good
+// sheet as missing, which is indistinguishable from bad data.
+{
+  const caps = {
+    CUSTOMER_CODE: 'YG000000026', NAME: 'BALAJI', ADDRESS: 'Thane',
+    PINCODE: '400601', LAT: '19.207875', LONG: '72.984682',
+  };
+  const { input, errors } = normalizeStoreInput(caps, {});
+  check('all-caps headers are matched', errors.length === 0, errors.join('; '));
+  check('all-caps row keeps its values', input.customer_code === 'YG000000026' && input.lat === 19.207875);
+}
+{
+  const spaced = {
+    'Customer Code': 'YG000000027', 'Name': 'BALAJI 2', 'Addr 1': 'Thane West',
+    'Pincode': '400602', 'Lattitude': '19.2', 'Longitude': '72.9',
+  };
+  const { input, errors } = normalizeStoreInput(spaced, {});
+  check('spaced headers and LATTITUDE are matched', errors.length === 0, errors.join('; '));
+  check('ADDR_1 alone becomes the address', input.address === 'Thane West', input.address);
+}
+{
+  // The customer master's own headers, straight from the export, with no
+  // mapping step in front of them.
+  const master = {
+    CUST_CD: 'YG000000028', CUST_NAME: 'BALAJI 3', ADDR_1: 'Plot 4', ADDR_2: 'Andheri East',
+    ADDR_POSTAL: '400069', LATITUDE: '19.1197', LONGITUDE: '72.8468',
+    CONT_PR: 'Store Mgr', MOBILE_NO: '02233440001', CUST_STATUS: 'ACTIVE',
+  };
+  const { input, errors } = normalizeStoreInput(master, {});
+  check('customer-master headers are matched unmapped', errors.length === 0, errors.join('; '));
+  check('CUST_CD becomes the customer code', input.customer_code === 'YG000000028', input.customer_code);
+  check('ADDR_1..ADDR_5 are joined', input.address === 'Plot 4, Andheri East', input.address);
+  check('CONT_PR / MOBILE_NO / CUST_STATUS are carried',
+    input.contact_person === 'Store Mgr' && input.contact_no === '02233440001' && input.outlet_status === 'ACTIVE');
+}
+{
+  // A sheet with none of the store columns must still be rejected — that is
+  // what the wrong-tab guard in bulk.controller reports before validating.
+  const vendorSheet = {
+    COMPANY_NAME: 'Apex Technologies Pvt. Ltd.', CONTACT_PERSON: 'Rahul Mehta',
+    CONTACT_PHONE: '+91 98765 43210', CONTACT_EMAIL: 'rahul@example.com', REMARKS: 'demo',
+  };
+  const { errors } = normalizeStoreInput(vendorSheet, {});
+  check('a vendor sheet is still not a store row', errors.length >= 4, errors.join('; '));
+}
+
+console.log('\n== bulk sheet identification (wrong-tab guard) ==');
+function shapeError(rows: Record<string, unknown>[], expected: string): string {
+  try { assertSheetShape(rows, expected); return ''; } catch (e) { return (e as Error).message; }
+}
+const vendorRows = [{
+  COMPANY_NAME: 'Apex Technologies Pvt. Ltd.', CONTACT_PERSON: 'Rahul Mehta',
+  CONTACT_PHONE: '+91 98765 43210', CONTACT_EMAIL: 'rahul@example.com', REMARKS: 'demo',
+}];
+const storeRows = [{
+  HOS: 'Rajesh', State_CD: 'MH', CUST_CD: 'YG000000026', CUST_NAME: 'BALAJI', CONT_PR: 'Mgr',
+  MOBILE_NO: '02233440001', ADDR_1: 'Plot 4', ADDR_POSTAL: '400069', CHANNEL: 'GT',
+  SUB_CHANNEL: 'Grocery', LATITUDE: '19.1', LONGITUDE: '72.8', CUST_STATUS: 'ACTIVE',
+}];
+{
+  const msg = shapeError(vendorRows, 'Stores');
+  check('a vendor sheet on the Stores tab is refused once', msg !== '');
+  check('and it names the Vendors tab', msg.includes('Vendors tab'), msg);
+}
+{
+  check('a vendor sheet on the Vendors tab passes', shapeError(vendorRows, 'Vendors') === '');
+  check('a store sheet on the Stores tab passes', shapeError(storeRows, 'Stores') === '');
+}
+{
+  const msg = shapeError(storeRows, 'Employees');
+  check('a store sheet on the Employees tab is refused', msg !== '');
+  check('and it names the Stores tab', msg.includes('Stores tab'), msg);
+}
+{
+  // An older compact store sheet is still a store sheet.
+  const compact = [{ customer_code: 'YG1', name: 'A', address: 'B', pincode: '400601', lat: '19', long: '72' }];
+  check('a compact store sheet is recognised as Stores', shapeError(compact, 'Stores') === '');
+}
+{
+  // A recognised sheet missing one column is NOT refused here — that stays a
+  // per-row error, which is what tells the operator which rows to fix.
+  const partial = [{ COMPANY_NAME: 'Apex' }];
+  check('an incomplete but recognised sheet still validates per row', shapeError(partial, 'Vendors') === '');
+}
+{
+  check('an empty file is not refused by shape', shapeError([], 'Stores') === '');
+}
+
+console.log('\n== header spelling (case is fine, typos are not) ==');
+function spellingError(rows: Record<string, unknown>[], channel: string): string {
+  try { assertHeaderSpelling(rows, channel); return ''; } catch (e) { return (e as Error).message; }
+}
+{
+  // Any casing or punctuation of a real column must import untouched — that is
+  // the whole point of matching normalised names.
+  const casings = [
+    { cust_cd: 'YG1', cust_name: 'A', addr_1: 'B', addr_postal: '400601', latitude: '19', longitude: '72' },
+    { 'Cust CD': 'YG1', 'Cust Name': 'A', 'Addr 1': 'B', 'Addr Postal': '400601' },
+    { CUSTOMER_CODE: 'YG1', NAME: 'A', ADDRESS: 'B', PINCODE: '400601', LAT: '19', LONG: '72' },
+  ];
+  for (const [i, row] of casings.entries()) {
+    check(`casing variant ${i + 1} is accepted`, spellingError([row], 'Stores') === '', spellingError([row], 'Stores'));
+  }
+  check('LATTITUDE is a known spelling, not a typo',
+    spellingError([{ CUST_CD: 'YG1', LATTITUDE: '19' }], 'Stores') === '');
+}
+{
+  const msg = spellingError([{ CUSTMER_CODE: 'YG1', CUST_NAME: 'A' }], 'Stores');
+  check('a misspelled column is refused', msg !== '');
+  check('and the right spelling is suggested', msg.includes('CUSTOMER_CODE'), msg);
+}
+{
+  const msg = spellingError([{ COMPANY_NAM: 'Apex', CONTACT_PERSON: 'R' }], 'Vendors');
+  check('a misspelled vendor column is refused', msg.includes('COMPANY_NAME'), msg);
+}
+{
+  const msg = spellingError([{ FIRST_NAME: 'A', LAST_NAME: 'B', EMAIL: 'a@b.com', ROLE: 'employee', MOBIEL: '9' }], 'Employees');
+  check('a misspelled employee column is refused', msg.includes('MOBILE'), msg);
+}
+{
+  // A real customer-master export carries dozens of columns with no field here.
+  // They are kept as source data, so they must not be mistaken for typos.
+  const wide = {
+    CUST_CD: 'YG1', CUST_NAME: 'A', ADDR_1: 'B', ADDR_POSTAL: '400601',
+    GST_NO: '27AAA', BEAT_NAME: 'North 4', ROUTE_CODE: 'R12', SALESMAN: 'K Rao', DISTRIBUTOR_NAME: 'D1',
+  };
+  check('unrelated extra columns are left alone', spellingError([wide], 'Stores') === '', spellingError([wide], 'Stores'));
+}
+{
+  check('an empty file has no spelling to check', spellingError([], 'Stores') === '');
+}
+
+console.log('\n== Create Store request body (the schema the app mounts) ==');
+// Exactly what the Create / Update Store form posts: every input it draws,
+// with the ones left blank arriving as "".
+const formBody = {
+  customer_code: 'YG000000026', name: 'BALAJI', pincode: '400601', lat: 19.2, long: 72.9,
+  ADDR_1: 'Plot 4', ADDR_2: '', ADDR_3: '', ADDR_4: '', ADDR_5: '',
+  HOS: 'Rajesh', State_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery',
+  contact_no: '9800000001', contact_email: '', contact_person: 'Store Mgr', outlet_status: 'ACTIVE',
+};
+{
+  // The regression: Contact Email is labelled optional, but `.min(1).optional()`
+  // rejected "" and failed the whole save on "Too small: expected string to
+  // have >=1 characters" — naming no field.
+  const r = storeCreateBody.safeParse(formBody);
+  check('a blank optional Contact Email is accepted',
+    r.success, r.success ? '' : JSON.stringify(r.error.flatten().fieldErrors));
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, contact_email: 'store@example.com' });
+  check('a filled Contact Email is still accepted', r.success);
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, contact_no: '', contact_person: '' });
+  check('other blank optional fields are accepted too', r.success);
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, contact_email: 5 });
+  check('a non-string Contact Email is still rejected', !r.success);
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, customer_code: '' });
+  check('a blank Customer Code is still rejected', !r.success);
+}
+
+console.log('\n== validation error messages name their field ==');
+function validationDetails(schema: Parameters<typeof validate>[0], body: unknown): Record<string, string[]> {
+  let payload: { error?: string; details?: Record<string, string[]> } = {};
+  const res = {
+    status() { return this; },
+    json(p: typeof payload) { payload = p; return this; },
+  };
+  validate(schema)({ body } as never, res as never, () => { payload = {}; });
+  return payload.details ?? {};
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, name: '' });
+  check('a blank required field says which field', (d.name?.[0] ?? '').startsWith('name'), JSON.stringify(d));
+  check('and says it must not be blank', (d.name?.[0] ?? '').includes('blank'), JSON.stringify(d));
+}
+{
+  const { customer_code, ...withoutCode } = formBody;
+  void customer_code;
+  const d = validationDetails(storeCreateBody, withoutCode);
+  check('a missing field reads as required', d.customer_code?.[0] === 'customer_code is required', JSON.stringify(d));
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, name: 5 });
+  check('a wrongly-typed field says so', d.name?.[0] === 'name must be a string', JSON.stringify(d));
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, vendor_id: 'not-a-uuid' });
+  check('a malformed uuid names the field and the format',
+    d.vendor_id?.[0] === 'vendor_id is not a valid uuid', JSON.stringify(d));
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, name: '', pincode: '' });
+  check('every bad field is reported, keyed by name',
+    Object.keys(d).sort().join(',') === 'name,pincode', JSON.stringify(d));
+}
+{
+  // No zod message reaches the client without a field in front of it — that is
+  // what made the original report unactionable.
+  const d = validationDetails(storeCreateBody, { ...formBody, name: '', customer_code: '' });
+  const raw = Object.values(d).flat().filter((m) => m.startsWith('Too small') || m.startsWith('Invalid input'));
+  check('no bare Zod wording survives', raw.length === 0, raw.join('; '));
+}
+
+console.log('\n== head-office hierarchy (privilege ceiling) ==');
+{
+  // An rjcorp_user's privileges come from whatever custom role is assigned, so
+  // without a ceiling the hierarchy was only as strong as that role: a role
+  // carrying user.manage would let an rjcorp_user create accounts, including
+  // ones that hold everything it does not.
+  const greedy: Privilege[] = ['task.assign', 'task.approve', 'user.manage', 'user.status', 'role.manage'];
+  const capped = capPrivileges('rjcorp_user', greedy);
+  check('rjcorp_user cannot hold user.manage', !capped.includes('user.manage'), capped.join(', '));
+  check('rjcorp_user cannot hold user.status', !capped.includes('user.status'), capped.join(', '));
+  check('rjcorp_user cannot hold role.manage', !capped.includes('role.manage'), capped.join(', '));
+  check('rjcorp_user keeps assigning', capped.includes('task.assign'), capped.join(', '));
+  check('rjcorp_user keeps approving', capped.includes('task.approve'), capped.join(', '));
+}
+{
+  // Everything operational is still delegable — that is what makes an
+  // rjcorp_user useful rather than merely restricted.
+  const operational: Privilege[] = ['task.create', 'task.assign', 'task.approve', 'store.manage', 'artwork.manage', 'vendor.manage', 'vendor.status'];
+  const capped = capPrivileges('rjcorp_user', operational);
+  check('every operational privilege survives the cap', capped.length === operational.length, capped.join(', '));
+}
+{
+  const capped = capPrivileges('rjcorp_admin', ALL_PRIVILEGES);
+  check('rjcorp_admin is never capped', capped.length === ALL_PRIVILEGES.length, capped.join(', '));
+  check('rjcorp_admin holds every privilege', ALL_PRIVILEGES.every((p) => capped.includes(p)));
+}
+{
+  // Vendor admins manage their own vendor's staff; the controllers confine them
+  // to it, so the ceiling must not strip what they legitimately hold.
+  const vendorAdmin = capPrivileges('vendor_admin', ['task.assign', 'user.manage', 'user.status']);
+  check('vendor_admin keeps managing its own staff',
+    vendorAdmin.includes('user.manage') && vendorAdmin.includes('user.status'), vendorAdmin.join(', '));
+}
+{
+  check('the ceiling is exactly account + role administration',
+    [...RJCORP_ADMIN_ONLY].sort().join(',') === 'role.manage,user.manage,user.status',
+    RJCORP_ADMIN_ONLY.join(', '));
+  check('every capped privilege is a real one', RJCORP_ADMIN_ONLY.every((p) => ALL_PRIVILEGES.includes(p)));
 }
 
 console.log('\n== temporary password generation ==');
