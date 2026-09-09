@@ -32,7 +32,7 @@ function tabOf(status: string): Tab {
 const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'recee', label: 'Recee' },
-  { key: 'post_recee', label: 'From Recee' },
+  { key: 'post_recee', label: 'After Recee' },
   { key: 'direct', label: 'Direct' },
   { key: 'direct_boarding', label: 'w/o Recee' },
 ];

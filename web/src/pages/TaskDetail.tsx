@@ -12,7 +12,7 @@ import { taskAge, dayLabel } from '../lib/taskAge';
 import { SIGNAGE_TYPE_LABELS } from '../types';
 
 const TYPE_LABEL: Record<string, string> = {
-  recee: 'Recee', post_recee: 'Installation (from recee)',
+  recee: 'Recee', post_recee: 'Installation (After Recee)',
   direct: 'Direct Installation', direct_boarding: 'Installation w/o Recee',
 };
 
@@ -108,7 +108,7 @@ export function TaskDetail() {
         return (
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0 }}>Installation (from this recee)</h3>
+              <h3 style={{ margin: 0 }}>Installation (After Recee)</h3>
               <TaskBadge task={child} />
               <span className="muted" style={{ fontSize: 13 }}>
                 {cAge.completedInDays != null ? `completed in ${dayLabel(cAge.completedInDays)}` : `${dayLabel(cAge.ageDays)} old`}
