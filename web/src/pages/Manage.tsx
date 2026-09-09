@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useHasPrivilege } from '../store/auth';
+import { useAuth, useHasPrivilege } from '../store/auth';
 import {
   getVendors, getUsers, setVendorActive, setUserActive, updateVendor, updateUser, deleteEmployee,
   getRoles, getPrivilegeCatalog, createRole, updateRole,
@@ -7,7 +7,7 @@ import {
   downloadVendorsReport, downloadEmployeesReport, downloadBrandsReport, downloadArtworksReport,
   getUserPassword,
 } from '../api';
-import type { Vendor, User, Role, PrivilegeDef, Privilege, Brand, Artwork } from '../types';
+import type { Vendor, User, UserRole, Role, PrivilegeDef, Privilege, Brand, Artwork } from '../types';
 import { ROLE_LABELS } from '../types';
 import { Button, Card, Spinner, ErrorBanner } from '../components/ui';
 import { useLightbox } from '../components/Lightbox';
@@ -26,6 +26,18 @@ export function Manage() {
     ...(has('role.manage') ? [{ key: 'roles' as Tab, label: 'Roles' }] : []),
   ];
   const [tab, setTab] = useState<Tab>(tabs[0]?.key ?? 'employees');
+
+  // Reached by URL without holding any of the Manage privileges: say so rather
+  // than falling through to the first tab, which would show a list this account
+  // is not entitled to.
+  if (tabs.length === 0) {
+    return (
+      <div>
+        <h1>Manage</h1>
+        <p className="meta">You don't have access to any of these settings.</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -227,6 +239,15 @@ function StatusPill({ active }: { active: boolean }) {
   return <span className={`badge ${active ? 'completed' : 'recee_rejected'}`}>{active ? 'Active' : 'Inactive'}</span>;
 }
 
+/**
+ * The account's role, on the row itself. The list mixes every level now, so a
+ * name alone no longer says whether you are looking at an admin, a vendor's
+ * staff or a field employee.
+ */
+function RolePill({ role }: { role: UserRole }) {
+  return <span className="badge">{ROLE_LABELS[role] ?? role}</span>;
+}
+
 function Vendors() {
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -319,24 +340,48 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+// Every role this list can show, in hierarchy order — head office first, then
+// vendor staff, then field employees. Used for the filter row and to order the
+// list, so an admin reading down the page reads down the hierarchy.
+const ROLE_ORDER: UserRole[] = ['rjcorp_admin', 'rjcorp_user', 'vendor_admin', 'vendor_user', 'employee'];
+
 function Employees() {
+  const me = useAuth((s) => s.user);
   const [users, setUsers] = useState<User[] | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [editId, setEditId] = useState<string | null>(null);
   const [viewId, setViewId] = useState<string | null>(null);
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', mobile: '' });
-  useEffect(() => { getUsers({ role: 'employee' }).then(setUsers).catch((e) => setErr(apiError(e))); }, []);
+  // Every account the caller is allowed to see, not just role=employee.
+  //
+  // This list used to ask for role=employee outright, so an RJCorp admin could
+  // never see an RJCorp user (or another admin, or vendor staff) anywhere in
+  // the console — the accounts existed but had no screen. The server already
+  // scopes this: head office gets every account, and a vendor admin/user only
+  // ever gets their own vendor's, so asking for all of them here shows each
+  // caller exactly what their level covers.
+  useEffect(() => { getUsers().then(setUsers).catch((e) => setErr(apiError(e))); }, []);
   // Only head office can list vendors; degrade to "no vendor names" for others.
   useEffect(() => { getVendors().then(setVendors).catch(() => setVendors([])); }, []);
   const vendorName = (id: string | null) => vendors.find((v) => v.id === id)?.name ?? null;
+  // Which roles are actually present, so the filter row never offers an empty one.
+  const rolesPresent = useMemo(
+    () => ROLE_ORDER.filter((r) => (users ?? []).some((u) => u.role === r)),
+    [users]
+  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return users ?? [];
-    return (users ?? []).filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.uid ?? '').toLowerCase().includes(q));
-  }, [users, query]);
+    const byRole = roleFilter === 'all' ? (users ?? []) : (users ?? []).filter((u) => u.role === roleFilter);
+    const matched = !q ? byRole : byRole.filter((u) =>
+      u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.uid ?? '').toLowerCase().includes(q));
+    // Hierarchy first, then name — the server orders by name alone.
+    return [...matched].sort((a, b) =>
+      ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.name.localeCompare(b.name));
+  }, [users, query, roleFilter]);
   async function toggle(u: User) {
     setBusyId(u.id); setErr(null);
     try { const upd = await setUserActive(u.id, !u.is_active); setUsers((p) => p!.map((x) => (x.id === u.id ? { ...x, is_active: upd.is_active } : x))); }
@@ -361,11 +406,25 @@ function Employees() {
   if (!users) return <Spinner />;
   return (
     <Card>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        <h3 style={{ margin: 0 }}>Accounts ({filtered.length}{filtered.length !== users.length ? ` of ${users.length}` : ''})</h3>
         <DownloadReportButton label="Download report" filenamePrefix="employees-report" fetcher={downloadEmployeesReport} />
       </div>
       <ErrorBanner msg={err} />
+      {rolesPresent.length > 1 && (
+        <div className="tabs" style={{ marginBottom: 4 }}>
+          <div className={`tab ${roleFilter === 'all' ? 'on' : ''}`} onClick={() => setRoleFilter('all')}>
+            All ({users.length})
+          </div>
+          {rolesPresent.map((r) => (
+            <div key={r} className={`tab ${roleFilter === r ? 'on' : ''}`} onClick={() => setRoleFilter(r)}>
+              {ROLE_LABELS[r]} ({users.filter((u) => u.role === r).length})
+            </div>
+          ))}
+        </div>
+      )}
       <input placeholder="Search name, UID or email…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ marginBottom: 12 }} />
+      {filtered.length === 0 && <p className="meta">No accounts match.</p>}
       <div className="row-list">
         {filtered.map((u) => (
           <div key={u.id} className="list-row" style={{ cursor: 'default', alignItems: editId === u.id ? 'stretch' : 'center' }}>
@@ -386,8 +445,16 @@ function Employees() {
             ) : (
               <>
                 <div>
-                  <div style={{ fontWeight: 700 }}>{u.name} {u.uid && <span className="muted">· {u.uid}</span>}</div>
-                  <div className="meta">{u.email}{u.phone ? ` · ${u.phone}` : ''}</div>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span>{u.name} {u.uid && <span className="muted">· {u.uid}</span>}</span>
+                    <RolePill role={u.role} />
+                    {u.id === me?.id && <span className="meta">(you)</span>}
+                  </div>
+                  <div className="meta">
+                    {u.email}{u.phone ? ` · ${u.phone}` : ''}
+                    {vendorName(u.vendor_id) ? ` · ${vendorName(u.vendor_id)}` : ''}
+                    {u.custom_role_name ? ` · ${u.custom_role_name}` : ''}
+                  </div>
                   {viewId === u.id && (
                     <div
                       className="grid2"
@@ -413,12 +480,20 @@ function Employees() {
                     {viewId === u.id ? 'Hide' : 'View'}
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => startEdit(u)}>Edit</Button>
-                  <Button size="sm" variant={(u.is_active ?? true) ? 'danger' : undefined} disabled={busyId === u.id} onClick={() => toggle(u)}>
-                    {(u.is_active ?? true) ? 'Deactivate' : 'Activate'}
-                  </Button>
-                  <Button size="sm" variant="danger" disabled={busyId === u.id} onClick={() => remove(u)} title="Dev/test cleanup only — permanently deletes this account and all its tasks">
-                    Delete
-                  </Button>
+                  {/* Your own account is not yours to switch off — the server
+                      refuses it, so the button would only ever error. */}
+                  {u.id !== me?.id && (
+                    <Button size="sm" variant={(u.is_active ?? true) ? 'danger' : undefined} disabled={busyId === u.id} onClick={() => toggle(u)}>
+                      {(u.is_active ?? true) ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  )}
+                  {/* Delete is employee-only on the server (it cascades to their
+                      tasks and history), so it is not offered on other roles. */}
+                  {u.role === 'employee' && (
+                    <Button size="sm" variant="danger" disabled={busyId === u.id} onClick={() => remove(u)} title="Dev/test cleanup only — permanently deletes this account and all its tasks">
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </>
             )}
@@ -469,12 +544,27 @@ function Roles() {
         <label>Privileges</label>
         <div style={{ display: 'grid', gap: 6 }}>
           {catalog.map((p) => (
-            <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, margin: 0 }}>
-              <input type="checkbox" style={{ width: 'auto' }} checked={picked.has(p.key)} onChange={() => toggle(p.key)} />
+            <label
+              key={p.key}
+              title={p.admin_only ? 'Only an RJCorp Admin holds this — it cannot be delegated to a custom role.' : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, margin: 0, opacity: p.admin_only ? 0.55 : 1 }}
+            >
+              <input
+                type="checkbox" style={{ width: 'auto' }}
+                checked={!p.admin_only && picked.has(p.key)}
+                disabled={p.admin_only}
+                onChange={() => toggle(p.key)}
+              />
               {p.label}
+              {p.admin_only && <span className="meta">RJCorp Admin only</span>}
             </label>
           ))}
         </div>
+        <p className="meta" style={{ marginTop: 6 }}>
+          Custom roles apply to RJCorp User accounts. Managing accounts and roles stays with
+          RJCorp Admin, so those privileges cannot be granted here — an RJCorp User who could
+          create accounts could give itself everything else.
+        </p>
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <Button onClick={save} disabled={busy}>{editing ? 'Save changes' : 'Create role'}</Button>
           {editing && <Button variant="secondary" onClick={startNew}>Cancel</Button>}

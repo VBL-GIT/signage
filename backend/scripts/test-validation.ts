@@ -15,6 +15,12 @@ import {
   normalizeStoreInput,
   IdentityLookup,
 } from '../src/services/stores.service';
+import {
+  ALL_PRIVILEGES,
+  RJCORP_ADMIN_ONLY,
+  capPrivileges,
+  type Privilege,
+} from '../src/auth/privileges';
 import { validate } from '../src/middleware/validate';
 import { storeCreateBody } from '../src/routes/stores';
 import { generateTemporaryPassword } from '../src/services/password';
@@ -348,6 +354,46 @@ function validationDetails(schema: Parameters<typeof validate>[0], body: unknown
   const d = validationDetails(storeCreateBody, { ...formBody, name: '', customer_code: '' });
   const raw = Object.values(d).flat().filter((m) => m.startsWith('Too small') || m.startsWith('Invalid input'));
   check('no bare Zod wording survives', raw.length === 0, raw.join('; '));
+}
+
+console.log('\n== head-office hierarchy (privilege ceiling) ==');
+{
+  // An rjcorp_user's privileges come from whatever custom role is assigned, so
+  // without a ceiling the hierarchy was only as strong as that role: a role
+  // carrying user.manage would let an rjcorp_user create accounts, including
+  // ones that hold everything it does not.
+  const greedy: Privilege[] = ['task.assign', 'task.approve', 'user.manage', 'user.status', 'role.manage'];
+  const capped = capPrivileges('rjcorp_user', greedy);
+  check('rjcorp_user cannot hold user.manage', !capped.includes('user.manage'), capped.join(', '));
+  check('rjcorp_user cannot hold user.status', !capped.includes('user.status'), capped.join(', '));
+  check('rjcorp_user cannot hold role.manage', !capped.includes('role.manage'), capped.join(', '));
+  check('rjcorp_user keeps assigning', capped.includes('task.assign'), capped.join(', '));
+  check('rjcorp_user keeps approving', capped.includes('task.approve'), capped.join(', '));
+}
+{
+  // Everything operational is still delegable — that is what makes an
+  // rjcorp_user useful rather than merely restricted.
+  const operational: Privilege[] = ['task.create', 'task.assign', 'task.approve', 'store.manage', 'artwork.manage', 'vendor.manage', 'vendor.status'];
+  const capped = capPrivileges('rjcorp_user', operational);
+  check('every operational privilege survives the cap', capped.length === operational.length, capped.join(', '));
+}
+{
+  const capped = capPrivileges('rjcorp_admin', ALL_PRIVILEGES);
+  check('rjcorp_admin is never capped', capped.length === ALL_PRIVILEGES.length, capped.join(', '));
+  check('rjcorp_admin holds every privilege', ALL_PRIVILEGES.every((p) => capped.includes(p)));
+}
+{
+  // Vendor admins manage their own vendor's staff; the controllers confine them
+  // to it, so the ceiling must not strip what they legitimately hold.
+  const vendorAdmin = capPrivileges('vendor_admin', ['task.assign', 'user.manage', 'user.status']);
+  check('vendor_admin keeps managing its own staff',
+    vendorAdmin.includes('user.manage') && vendorAdmin.includes('user.status'), vendorAdmin.join(', '));
+}
+{
+  check('the ceiling is exactly account + role administration',
+    [...RJCORP_ADMIN_ONLY].sort().join(',') === 'role.manage,user.manage,user.status',
+    RJCORP_ADMIN_ONLY.join(', '));
+  check('every capped privilege is a real one', RJCORP_ADMIN_ONLY.every((p) => ALL_PRIVILEGES.includes(p)));
 }
 
 console.log('\n== temporary password generation ==');
