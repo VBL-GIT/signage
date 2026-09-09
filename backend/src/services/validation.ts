@@ -196,3 +196,65 @@ export function columnLookup(r: Record<string, unknown>) {
     return '';
   };
 }
+
+// ----------------------------------------------------------------------------
+// Which sheet is this?
+//
+// Every bulk channel validates row by row, so a sheet uploaded on the wrong tab
+// failed EVERY row on "X is required" — a 15-row vendor list reported as 75
+// missing store fields, which reads as bad data when the data is fine and only
+// the tab is wrong. These signatures let a channel recognise a sheet that
+// cannot possibly be its own and say so once, before validating anything.
+//
+// Matched through the same normalisation columnLookup uses, so casing and
+// punctuation are irrelevant. Overlap between the lists is harmless: a channel
+// only refuses a file when it recognises NONE of its own columns.
+export const SHEET_SHAPES: { label: string; tab: string; columns: string[] }[] = [
+  { label: 'Stores', tab: 'Stores', columns:
+    ['CUST_CD', 'CUSTOMER_CODE', 'CUST_NAME', 'ADDR_1', 'ADDR_POSTAL', 'PINCODE', 'LATITUDE', 'LAT', 'CUST_STATUS'] },
+  { label: 'Vendors', tab: 'Vendors', columns:
+    ['COMPANY_NAME', 'CONTACT_PERSON', 'CONTACT_PHONE', 'REMARKS'] },
+  { label: 'Employees', tab: 'Employees', columns:
+    ['FIRST_NAME', 'LAST_NAME', 'ROLE', 'MOBILE'] },
+  { label: 'Tasks', tab: 'Tasks', columns:
+    ['VENDOR_UID', 'TARGET_PAMPHLET_COUNT', 'BRAND_NAME', 'ARTWORK_NAME', 'WIDTH_IN', 'HEIGHT_IN'] },
+];
+
+const normHeader = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** How many of `columns` a sheet's header row actually contains. */
+function shapeScore(headers: Set<string>, columns: string[]): number {
+  return columns.filter((c) => headers.has(normHeader(c))).length;
+}
+
+/**
+ * Throw a single clear error when `rows` cannot be the sheet `expected` names —
+ * i.e. the header row contains none of that channel's own columns.
+ *
+ * Names the tab the file does belong on when another signature matches it, so
+ * the operator's next action is one click rather than a guess. Deliberately
+ * silent when the sheet is merely incomplete: a missing column on an otherwise
+ * recognised sheet is a row-level problem, and stays reported per row, where it
+ * says which rows to fix.
+ */
+export function assertSheetShape(rows: Record<string, unknown>[], expected: string): void {
+  if (!rows.length) return;
+  const shape = SHEET_SHAPES.find((s) => s.label === expected);
+  if (!shape) return;
+  const headers = new Set(Object.keys(rows[0]).map(normHeader));
+  if (shapeScore(headers, shape.columns)) return;
+
+  const found = Object.keys(rows[0]).filter((h) => str(h)).slice(0, 6).join(', ');
+  const other = SHEET_SHAPES
+    .filter((s) => s.label !== expected)
+    .map((s) => ({ s, n: shapeScore(headers, s.columns) }))
+    .sort((a, b) => b.n - a.n)[0];
+
+  const whose = other && other.n >= 2
+    ? `It looks like the ${other.s.label} sheet — upload it on the ${other.s.tab} tab.`
+    : `Download the ${shape.label} template and fill your rows into it.`;
+  throw new Error(
+    `This file does not look like a ${expected} sheet: none of the ${expected} columns are in it. ` +
+    `${whose} Columns found: ${found || '(none)'}.`
+  );
+}

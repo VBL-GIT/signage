@@ -8,6 +8,7 @@ import {
   validateEmail,
   validateOptionalEmail,
   joinAddressParts,
+  assertSheetShape,
 } from '../src/services/validation';
 import {
   resolveStoreIdentity,
@@ -179,6 +180,95 @@ const baseRow = {
 {
   const { errors } = normalizeStoreInput({ ...baseRow, name: '', address: '', pincode: '' }, {});
   check('collects ALL problems, not just the first', errors.length >= 3, errors.join('; '));
+}
+
+// Header matching. A sheet arrives with whatever casing and punctuation its
+// author used; an exact-key lookup reported every column of a perfectly good
+// sheet as missing, which is indistinguishable from bad data.
+{
+  const caps = {
+    CUSTOMER_CODE: 'YG000000026', NAME: 'BALAJI', ADDRESS: 'Thane',
+    PINCODE: '400601', LAT: '19.207875', LONG: '72.984682',
+  };
+  const { input, errors } = normalizeStoreInput(caps, {});
+  check('all-caps headers are matched', errors.length === 0, errors.join('; '));
+  check('all-caps row keeps its values', input.customer_code === 'YG000000026' && input.lat === 19.207875);
+}
+{
+  const spaced = {
+    'Customer Code': 'YG000000027', 'Name': 'BALAJI 2', 'Addr 1': 'Thane West',
+    'Pincode': '400602', 'Lattitude': '19.2', 'Longitude': '72.9',
+  };
+  const { input, errors } = normalizeStoreInput(spaced, {});
+  check('spaced headers and LATTITUDE are matched', errors.length === 0, errors.join('; '));
+  check('ADDR_1 alone becomes the address', input.address === 'Thane West', input.address);
+}
+{
+  // The customer master's own headers, straight from the export, with no
+  // mapping step in front of them.
+  const master = {
+    CUST_CD: 'YG000000028', CUST_NAME: 'BALAJI 3', ADDR_1: 'Plot 4', ADDR_2: 'Andheri East',
+    ADDR_POSTAL: '400069', LATITUDE: '19.1197', LONGITUDE: '72.8468',
+    CONT_PR: 'Store Mgr', MOBILE_NO: '02233440001', CUST_STATUS: 'ACTIVE',
+  };
+  const { input, errors } = normalizeStoreInput(master, {});
+  check('customer-master headers are matched unmapped', errors.length === 0, errors.join('; '));
+  check('CUST_CD becomes the customer code', input.customer_code === 'YG000000028', input.customer_code);
+  check('ADDR_1..ADDR_5 are joined', input.address === 'Plot 4, Andheri East', input.address);
+  check('CONT_PR / MOBILE_NO / CUST_STATUS are carried',
+    input.contact_person === 'Store Mgr' && input.contact_no === '02233440001' && input.outlet_status === 'ACTIVE');
+}
+{
+  // A sheet with none of the store columns must still be rejected — that is
+  // what the wrong-tab guard in bulk.controller reports before validating.
+  const vendorSheet = {
+    COMPANY_NAME: 'Apex Technologies Pvt. Ltd.', CONTACT_PERSON: 'Rahul Mehta',
+    CONTACT_PHONE: '+91 98765 43210', CONTACT_EMAIL: 'rahul@example.com', REMARKS: 'demo',
+  };
+  const { errors } = normalizeStoreInput(vendorSheet, {});
+  check('a vendor sheet is still not a store row', errors.length >= 4, errors.join('; '));
+}
+
+console.log('\n== bulk sheet identification (wrong-tab guard) ==');
+function shapeError(rows: Record<string, unknown>[], expected: string): string {
+  try { assertSheetShape(rows, expected); return ''; } catch (e) { return (e as Error).message; }
+}
+const vendorRows = [{
+  COMPANY_NAME: 'Apex Technologies Pvt. Ltd.', CONTACT_PERSON: 'Rahul Mehta',
+  CONTACT_PHONE: '+91 98765 43210', CONTACT_EMAIL: 'rahul@example.com', REMARKS: 'demo',
+}];
+const storeRows = [{
+  HOS: 'Rajesh', State_CD: 'MH', CUST_CD: 'YG000000026', CUST_NAME: 'BALAJI', CONT_PR: 'Mgr',
+  MOBILE_NO: '02233440001', ADDR_1: 'Plot 4', ADDR_POSTAL: '400069', CHANNEL: 'GT',
+  SUB_CHANNEL: 'Grocery', LATITUDE: '19.1', LONGITUDE: '72.8', CUST_STATUS: 'ACTIVE',
+}];
+{
+  const msg = shapeError(vendorRows, 'Stores');
+  check('a vendor sheet on the Stores tab is refused once', msg !== '');
+  check('and it names the Vendors tab', msg.includes('Vendors tab'), msg);
+}
+{
+  check('a vendor sheet on the Vendors tab passes', shapeError(vendorRows, 'Vendors') === '');
+  check('a store sheet on the Stores tab passes', shapeError(storeRows, 'Stores') === '');
+}
+{
+  const msg = shapeError(storeRows, 'Employees');
+  check('a store sheet on the Employees tab is refused', msg !== '');
+  check('and it names the Stores tab', msg.includes('Stores tab'), msg);
+}
+{
+  // An older compact store sheet is still a store sheet.
+  const compact = [{ customer_code: 'YG1', name: 'A', address: 'B', pincode: '400601', lat: '19', long: '72' }];
+  check('a compact store sheet is recognised as Stores', shapeError(compact, 'Stores') === '');
+}
+{
+  // A recognised sheet missing one column is NOT refused here — that stays a
+  // per-row error, which is what tells the operator which rows to fix.
+  const partial = [{ COMPANY_NAME: 'Apex' }];
+  check('an incomplete but recognised sheet still validates per row', shapeError(partial, 'Vendors') === '');
+}
+{
+  check('an empty file is not refused by shape', shapeError([], 'Stores') === '');
 }
 
 console.log('\n== temporary password generation ==');

@@ -12,7 +12,9 @@ import {
 import { generateTemporaryPassword } from '../services/password';
 import { sealPassword } from '../services/credential-vault';
 import { env } from '../config/env';
-import { columnLookup, emailDomain, joinAddressParts, validateEmail, validateOptionalEmail } from '../services/validation';
+import {
+  assertSheetShape, columnLookup, emailDomain, joinAddressParts, validateEmail, validateOptionalEmail,
+} from '../services/validation';
 import {
   StoreInput,
   bulkUpsertStores,
@@ -128,7 +130,10 @@ const VALID_ROLES: UserRole[] = ['rjcorp_admin', 'rjcorp_user', 'vendor_admin', 
 export async function bulkUsers(req: AuthRequest, res: Response) {
   const { file_url } = req.body;
   let rows: Record<string, unknown>[];
-  try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+  try {
+    rows = await fetchSheetRows(file_url);
+    assertSheetShape(rows, 'Employees');
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const vendorByUid = new Map<string, { id: string; code: number }>();
   const vendorById = new Map<string, number>();
@@ -323,7 +328,10 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
   const { file_url, kind } = req.body as { file_url: string; kind?: string };
   const fixedType = kind ? TASK_KIND[kind] : null;
   let rows: Record<string, unknown>[];
-  try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+  try {
+    rows = await fetchSheetRows(file_url);
+    assertSheetShape(rows, 'Tasks');
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const vendorByUid = new Map<string, string>();
   for (const v of (await pool.query('SELECT id, uid FROM vendors')).rows) vendorByUid.set(String(v.uid), v.id);
@@ -541,7 +549,10 @@ const MASTER_REQUIRED: { label: string; accepts: string[] }[] = [
 export async function bulkStores(req: AuthRequest, res: Response) {
   const { file_url, format } = req.body as { file_url: string; format?: string };
   let rows: Record<string, unknown>[];
-  try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+  try {
+    rows = await fetchSheetRows(file_url);
+    assertSheetShape(rows, 'Stores');
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   // Header-based detection, on the first row's keys. Any casing or punctuation
   // of CUST_CD counts, since that column exists only in the customer master.
@@ -662,7 +673,10 @@ export async function bulkStores(req: AuthRequest, res: Response) {
 export async function bulkVendors(req: AuthRequest, res: Response) {
   const { file_url } = req.body;
   let rows: Record<string, unknown>[];
-  try { rows = await fetchSheetRows(file_url); } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
+  try {
+    rows = await fetchSheetRows(file_url);
+    assertSheetShape(rows, 'Vendors');
+  } catch (e) { res.status(400).json({ error: (e as Error).message }); return; }
 
   const failed: RowError[] = [];
   interface V { row: number; name: string; email: string | null; tuple: unknown[] }

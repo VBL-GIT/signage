@@ -173,28 +173,44 @@ export function normalizeStoreInput(
     }
   }
 
-  const customer_code = str(raw.customer_code);
+  // Every field below is read through columnLookup, not by exact key, for the
+  // same reason the metadata check above is: a spreadsheet row arrives with
+  // whatever casing and punctuation its author used. An exact `raw.customer_code`
+  // meant a sheet headed CUSTOMER_CODE, "Customer Code" or NAME failed EVERY
+  // row on columns it plainly contained — and reported them as missing, which
+  // reads as bad data rather than an unmatched header. The API bodies send the
+  // canonical lowercase names, which normalise to the same keys, so both
+  // callers are matched by one lookup.
+  //
+  // Where a genuinely different spelling exists, the alternatives are listed
+  // and the first present wins: the customer master's own CUST_CD / CUST_NAME /
+  // ADDR_POSTAL / LATITUDE, which is what lets a store sheet import whichever
+  // layout it was saved in.
+  const col = columnLookup(raw);
+  const customer_code = str(col('customer_code', 'CUST_CD'));
   // Customer Code is the store's single identifier: it is what the console
   // shows and what every template collects. uid is no longer collected, but
   // tasks, images and older spreadsheets still look stores up by it, so it is
   // kept in step with the code rather than left empty. An explicitly supplied
   // uid still wins, which is what preserves existing values on update.
-  const uid = str(raw.uid) || customer_code;
-  const name = str(raw.name);
+  const uid = str(col('uid', 'CUST_UID')) || customer_code;
+  const name = str(col('name', 'CUST_NAME'));
   // The store form and the store template both supply the address as
   // ADDR_1..ADDR_5, so they are joined here rather than in either caller. A
   // pre-joined `address` still wins, which is what the bulk mapper passes.
-  const address = str(raw.address) ||
-    joinAddressParts([raw.ADDR_1, raw.ADDR_2, raw.ADDR_3, raw.ADDR_4, raw.ADDR_5]);
-  const pincode = str(raw.pincode);
+  const address = str(col('address')) ||
+    joinAddressParts([col('ADDR_1'), col('ADDR_2'), col('ADDR_3'), col('ADDR_4'), col('ADDR_5')]);
+  const pincode = str(col('pincode', 'ADDR_POSTAL'));
 
   if (!customer_code) errors.push('customer_code (Customer Code) is required');
   if (!name) errors.push('name is required');
   if (!address) errors.push('address (ADDR_1) is required');
   if (!pincode) errors.push('pincode is required');
 
-  const lat = parseFloat(str(raw.lat));
-  const long = parseFloat(str(raw.long));
+  // LATTITUDE / LONGTITUDE are common misspellings in real exports; accepted
+  // here for the same reason the customer-master mapper accepts them.
+  const lat = parseFloat(str(col('lat', 'LATITUDE', 'LATTITUDE')));
+  const long = parseFloat(str(col('long', 'LONGITUDE', 'LONGTITUDE')));
   if (isNaN(lat) || isNaN(long)) {
     errors.push('lat and long must be numbers');
   } else {
@@ -202,9 +218,10 @@ export function normalizeStoreInput(
     if (long < -180 || long > 180) errors.push('long must be between -180 and 180');
   }
 
-  const emailCheck = validateOptionalEmail(raw.contact_email, 'contact_email');
+  const contact_email = col('contact_email');
+  const emailCheck = validateOptionalEmail(contact_email, 'contact_email');
   if (!emailCheck.ok) errors.push(emailCheck.reason!);
-  if (opts.requireContactEmail && !str(raw.contact_email)) {
+  if (opts.requireContactEmail && !str(contact_email)) {
     errors.push('contact_email is required');
   }
 
@@ -216,10 +233,10 @@ export function normalizeStoreInput(
     pincode,
     lat,
     long,
-    contact_no: str(raw.contact_no) || null,
+    contact_no: str(col('contact_no', 'MOBILE_NO')) || null,
     contact_email: emailCheck.value,
-    contact_person: str(raw.contact_person) || null,
-    outlet_status: str(raw.outlet_status) || null,
+    contact_person: str(col('contact_person', 'CONT_PR')) || null,
+    outlet_status: str(col('outlet_status', 'CUST_STATUS')) || null,
   };
   if (raw.vendor_id !== undefined) input.vendor_id = (raw.vendor_id as string) || null;
   if (raw.source_metadata !== undefined) {
@@ -231,12 +248,11 @@ export function normalizeStoreInput(
     // context. Left unset when none were supplied, so an update that omits
     // them does not wipe what is already stored.
     const collected: Record<string, unknown> = {};
-    const pick = columnLookup(raw);
     for (const key of METADATA_COLUMNS) {
       // Case-insensitive for the same reason the check above is: the caller may
       // send STATE_CD, State_CD or "state cd". Stored under the canonical name
       // so what lands in source_metadata is consistent whatever was sent.
-      const v = str(pick(key));
+      const v = str(col(key));
       if (v) collected[key] = v;
     }
     if (Object.keys(collected).length) input.source_metadata = collected;
