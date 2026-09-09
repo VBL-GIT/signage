@@ -69,7 +69,9 @@ router.post('/', requirePrivilege('store.manage'), validate(storeCreateBody), cr
 
 router.patch('/:id', requirePrivilege('store.manage'), validate(z.object({
   customer_code: z.string().min(1).optional(),
-  uid: z.string().min(1).optional(),
+  // Optional in its own right — normalizeStoreInput keeps an omitted or blank
+  // uid in step with the customer code — so "" must not be refused here.
+  uid: z.string().optional(),
   name: z.string().min(1).optional(),
   address: z.string().min(1).optional(),
   // The store form collects the same columns as the store template, so the
