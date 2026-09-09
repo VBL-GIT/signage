@@ -5,6 +5,15 @@
     "scheme": "vbl-signage",
     "version": "1.0.0",
     "orientation": "portrait",
+    "updates": {
+      "enabled": true,
+      "url": "https://u.expo.dev/ab5cfaef-b738-49fd-8f4e-1104cbd3dd09",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {

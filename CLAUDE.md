@@ -100,6 +100,30 @@ npx expo start --web       # browser only — camera/GPS/SecureStore behave diff
 npx tsc --noEmit           # type-check
 ```
 
+### Mobile releases (OTA vs. a new build)
+
+The app uses EAS Update (`expo-updates`), so a JS/TS-only change reaches employees
+without them reinstalling anything:
+
+```bash
+cd mobile
+eas update --channel preview    --message "what changed"   # internal APK testers
+eas update --channel production --message "what changed"   # Play Store build
+```
+
+The device fetches the update on launch and runs it from the **next** launch —
+deliberately: `fallbackToCacheTimeout: 0` means the app never waits on the network
+to start, which matters for field staff on a bad signal.
+
+A **new build** (`eas build --profile preview|production --platform android`) is
+required whenever the native runtime changes — a new native dependency, an
+`app.json` plugin/permission change, or an SDK upgrade. `runtimeVersion.policy` is
+`fingerprint`, so EAS computes what the native side looks like and an update simply
+does not apply to a build whose fingerprint differs. That is the point: it is
+impossible to OTA JS that calls a native module the installed app does not have.
+The cost is that native changes need a build and redistribution — check the
+`eas update` output for how many builds an update actually matched.
+
 ## Environment
 
 Backend `.env` requires: `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_STORAGE_BUCKET`.
