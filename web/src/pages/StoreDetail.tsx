@@ -8,7 +8,7 @@ import { useHasPrivilege } from '../store/auth';
 import { apiError } from '../api/client';
 
 const TYPE_LABEL: Record<string, string> = {
-  recee: 'Recee', post_recee: 'Installation (from recee)',
+  recee: 'Recee', post_recee: 'Installation (After Recee)',
   direct: 'Direct Installation', direct_boarding: 'Installation w/o Recee',
 };
 function taskLabel(t: Task) {

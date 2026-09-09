@@ -12,7 +12,7 @@ const PAGE_SIZE = 20;
 
 const TYPE_LABEL: Record<string, string> = {
   recee: 'Recee',
-  post_recee: 'Installation (from recee)',
+  post_recee: 'Installation (After Recee)',
   direct: 'Direct Installation',
   direct_boarding: 'Installation w/o Recee',
 };
