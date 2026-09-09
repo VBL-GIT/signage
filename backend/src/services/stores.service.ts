@@ -1,6 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import { pool } from '../config/db';
-import { str, validateOptionalEmail, joinAddressParts } from './validation';
+import { str, validateOptionalEmail, joinAddressParts, columnLookup } from './validation';
 
 /** Anything we can run a query on — the pool, or a client inside a transaction. */
 type Queryable = Pool | PoolClient;
@@ -161,9 +161,15 @@ export function normalizeStoreInput(
   const errors: string[] = [];
 
   if (opts.requireMetadata) {
+    // Matched through columnLookup, not by exact key. The template headers are
+    // all-caps (STATE_CD) while this list is not, and an exact lookup made a
+    // valid sheet fail on a column it plainly contained. Both the row itself
+    // and source_metadata are searched, since the form sends these as ordinary
+    // fields while the importer nests the whole source row.
+    const fromRow = columnLookup(raw);
+    const fromMeta = columnLookup((raw.source_metadata ?? {}) as Record<string, unknown>);
     for (const key of METADATA_COLUMNS) {
-      const meta = (raw.source_metadata ?? {}) as Record<string, unknown>;
-      if (!str(raw[key]) && !str(meta[key])) errors.push(`${key} is required`);
+      if (!str(fromRow(key)) && !str(fromMeta(key))) errors.push(`${key} is required`);
     }
   }
 
@@ -225,8 +231,12 @@ export function normalizeStoreInput(
     // context. Left unset when none were supplied, so an update that omits
     // them does not wipe what is already stored.
     const collected: Record<string, unknown> = {};
+    const pick = columnLookup(raw);
     for (const key of METADATA_COLUMNS) {
-      const v = str(raw[key]);
+      // Case-insensitive for the same reason the check above is: the caller may
+      // send STATE_CD, State_CD or "state cd". Stored under the canonical name
+      // so what lands in source_metadata is consistent whatever was sent.
+      const v = str(pick(key));
       if (v) collected[key] = v;
     }
     if (Object.keys(collected).length) input.source_metadata = collected;

@@ -78,7 +78,7 @@ SPECS = {
     "tasks_boarding": [
         ("VENDOR_UID", True, "Vendor the task is for (must exist), e.g. VND-001."),
         ("CUSTOMER_CODE", True, "Mandatory. Customer Code of the store the installation is for (must exist)."),
-        ("BRAND_NAME", False, "Must match an existing brand."),
+        ("BRAND_NAME", False, "Must match a brand that already exists in the system (Manage > Brands). Left blank in the sample because brand names differ per system."),
         ("ARTWORK_NAME", False, "Artwork name / code. Must be an artwork of that brand."),
         ("WIDTH_IN", False, "Board width in inches (e.g. 48). Pair with height_in."),
         ("HEIGHT_IN", False, "Board height in inches (e.g. 36). Pair with width_in."),
@@ -150,13 +150,18 @@ SAMPLES = {
         ["VND-001", "", "600040", 175],
         ["VND-002", "YG000000038", "500081", 120],
     ],
+    # BRAND_NAME / ARTWORK_NAME are left blank on purpose. They must match a
+    # brand that already exists in YOUR system, and a sample naming an invented
+    # one ("BrandX") fails to import everywhere — which is worse than a sample
+    # that shows the shape and imports cleanly. The Guide sheet explains what
+    # goes in them.
     "tasks_boarding": [
-        ["VND-001", "YG000000026", "BrandX", "BrandX-Festive-2026", 48, 36],
-        ["VND-001", "YG000000033", "BrandX", "", 60, 40],
+        ["VND-001", "YG000000026", "", "", 48, 36],
+        ["VND-001", "YG000000033", "", "", 60, 40],
         ["VND-002", "YG000000038", "", "", "", ""],
-        ["VND-001", "YG000000037", "BrandX", "", 36, 24],
+        ["VND-001", "YG000000037", "", "", 36, 24],
         ["VND-002", "YG000101108", "", "", 72, 48],
-        ["VND-001", "YG000101109", "BrandX", "BrandX-Festive-2026", 48, 36],
+        ["VND-001", "YG000101109", "", "", 48, 36],
     ],
 }
 
