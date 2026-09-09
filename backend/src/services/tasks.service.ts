@@ -223,7 +223,12 @@ export interface ApprovalSignageSpec {
  * Returns the transitioned recee task row.
  */
 export async function processReceeApproval(
-  task: { id: string; vendor_id: string | null; store_id: string | null },
+  task: {
+    id: string; vendor_id: string | null; store_id: string | null;
+    // Carried onto the installation this approval creates. Both callers pass a
+    // full task row, so these are already loaded.
+    employee_id?: string | null; supervisor_id?: string | null;
+  },
   decision: { approval_status: 'approved' | 'rejected'; rejection_reason?: string | null; signages?: ApprovalSignageSpec[] },
   performedBy: string
 ) {
@@ -245,10 +250,27 @@ export async function processReceeApproval(
     for (const rs of receeSigs) receeByIndex.set(Number(rs.signage_index), rs);
 
     const firstBrand = signages[0]?.brand_id ?? null;
+    // The installation inherits the recee's employee and supervisor.
+    //
+    // Without this the new task was created with employee_id NULL, and an
+    // employee's task list is filtered to `employee_id = me` (canViewTask
+    // enforces the same on a single task) — so the work simply vanished: the
+    // recee moved to Done and no installation ever appeared for the person who
+    // had just surveyed the site. Someone had to notice and hand-assign it on
+    // the web for every approved recee.
+    //
+    // The recee's employee is also the right default: they have been to the
+    // store and their recee photos are what the install is measured against.
+    // Reassignment on the web still works exactly as before, and a recee that
+    // was itself unassigned still produces an unassigned installation.
     const { rows: created } = await pool.query(
-      `INSERT INTO tasks (task_type, installation_type, parent_task_id, vendor_id, store_id, brand_id, status)
-       VALUES ('installation','post_recee',$1,$2,$3,$4,'pending') RETURNING id`,
-      [task.id, task.vendor_id, task.store_id, firstBrand]
+      `INSERT INTO tasks (task_type, installation_type, parent_task_id, vendor_id, store_id, brand_id, status,
+                          employee_id, supervisor_id, assigned_at)
+       VALUES ('installation','post_recee',$1,$2,$3,$4,'pending',$5,$6,
+               CASE WHEN $5::uuid IS NULL THEN NULL ELSE NOW() END)
+       RETURNING id`,
+      [task.id, task.vendor_id, task.store_id, firstBrand,
+       task.employee_id ?? null, task.supervisor_id ?? null]
     );
     const newTaskId = created[0].id;
 
