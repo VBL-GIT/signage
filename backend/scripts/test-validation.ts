@@ -15,6 +15,8 @@ import {
   normalizeStoreInput,
   IdentityLookup,
 } from '../src/services/stores.service';
+import { validate } from '../src/middleware/validate';
+import { storeCreateBody } from '../src/routes/stores';
 import { generateTemporaryPassword } from '../src/services/password';
 import { buildCredentialsEmail } from '../src/services/email.service';
 import { resolveUserScope, duplicateEmailMessage } from '../src/services/users.service';
@@ -269,6 +271,83 @@ const storeRows = [{
 }
 {
   check('an empty file is not refused by shape', shapeError([], 'Stores') === '');
+}
+
+console.log('\n== Create Store request body (the schema the app mounts) ==');
+// Exactly what the Create / Update Store form posts: every input it draws,
+// with the ones left blank arriving as "".
+const formBody = {
+  customer_code: 'YG000000026', name: 'BALAJI', pincode: '400601', lat: 19.2, long: 72.9,
+  ADDR_1: 'Plot 4', ADDR_2: '', ADDR_3: '', ADDR_4: '', ADDR_5: '',
+  HOS: 'Rajesh', State_CD: 'MH', CHANNEL: 'GT', SUB_CHANNEL: 'Grocery',
+  contact_no: '9800000001', contact_email: '', contact_person: 'Store Mgr', outlet_status: 'ACTIVE',
+};
+{
+  // The regression: Contact Email is labelled optional, but `.min(1).optional()`
+  // rejected "" and failed the whole save on "Too small: expected string to
+  // have >=1 characters" — naming no field.
+  const r = storeCreateBody.safeParse(formBody);
+  check('a blank optional Contact Email is accepted',
+    r.success, r.success ? '' : JSON.stringify(r.error.flatten().fieldErrors));
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, contact_email: 'store@example.com' });
+  check('a filled Contact Email is still accepted', r.success);
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, contact_no: '', contact_person: '' });
+  check('other blank optional fields are accepted too', r.success);
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, contact_email: 5 });
+  check('a non-string Contact Email is still rejected', !r.success);
+}
+{
+  const r = storeCreateBody.safeParse({ ...formBody, customer_code: '' });
+  check('a blank Customer Code is still rejected', !r.success);
+}
+
+console.log('\n== validation error messages name their field ==');
+function validationDetails(schema: Parameters<typeof validate>[0], body: unknown): Record<string, string[]> {
+  let payload: { error?: string; details?: Record<string, string[]> } = {};
+  const res = {
+    status() { return this; },
+    json(p: typeof payload) { payload = p; return this; },
+  };
+  validate(schema)({ body } as never, res as never, () => { payload = {}; });
+  return payload.details ?? {};
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, name: '' });
+  check('a blank required field says which field', (d.name?.[0] ?? '').startsWith('name'), JSON.stringify(d));
+  check('and says it must not be blank', (d.name?.[0] ?? '').includes('blank'), JSON.stringify(d));
+}
+{
+  const { customer_code, ...withoutCode } = formBody;
+  void customer_code;
+  const d = validationDetails(storeCreateBody, withoutCode);
+  check('a missing field reads as required', d.customer_code?.[0] === 'customer_code is required', JSON.stringify(d));
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, name: 5 });
+  check('a wrongly-typed field says so', d.name?.[0] === 'name must be a string', JSON.stringify(d));
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, vendor_id: 'not-a-uuid' });
+  check('a malformed uuid names the field and the format',
+    d.vendor_id?.[0] === 'vendor_id is not a valid uuid', JSON.stringify(d));
+}
+{
+  const d = validationDetails(storeCreateBody, { ...formBody, name: '', pincode: '' });
+  check('every bad field is reported, keyed by name',
+    Object.keys(d).sort().join(',') === 'name,pincode', JSON.stringify(d));
+}
+{
+  // No zod message reaches the client without a field in front of it — that is
+  // what made the original report unactionable.
+  const d = validationDetails(storeCreateBody, { ...formBody, name: '', customer_code: '' });
+  const raw = Object.values(d).flat().filter((m) => m.startsWith('Too small') || m.startsWith('Invalid input'));
+  check('no bare Zod wording survives', raw.length === 0, raw.join('; '));
 }
 
 console.log('\n== temporary password generation ==');

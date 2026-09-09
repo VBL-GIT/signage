@@ -16,16 +16,29 @@ const coord = z.union([z.number(), z.string().min(1)]);
 router.use(authenticate);
 router.get('/', listStores as any);
 router.get('/:id', getStore as any);
-router.post('/', requirePrivilege('store.manage'), validate(z.object({
+
+// Exported so scripts/test-validation.ts checks the schema the app actually
+// mounts, rather than a copy of it that can drift.
+export const storeCreateBody = z.object({
   // Customer Code is the store's single identifier and is mandatory for new
   // stores. Enforced here, at the API layer, rather than as a NOT NULL that
   // legacy rows predating the column would have failed.
   customer_code: z.string().min(1),
-  // No longer collected: normalizeStoreInput defaults it to the customer code.
-  // Still accepted so an older client or spreadsheet can set it explicitly.
-  uid: z.string().min(1).optional(),
+  // Optional fields are `.optional()` WITHOUT .min(1), deliberately.
+  //
+  // A form posts every input it draws, so a field left blank arrives as "" —
+  // that is how a form says "not set". `.min(1).optional()` accepts an absent
+  // key but rejects "", so leaving the optional Contact Email blank failed the
+  // whole save on "Too small: expected string to have >=1 characters", naming
+  // no field. An optional field must therefore accept the empty string; the
+  // service maps "" to NULL (and validateOptionalEmail treats it as absent),
+  // which is also what makes clearing a value possible. The PATCH schema below
+  // already did this for the contact fields — POST was the odd one out.
+  //
+  // Genuinely required fields (customer_code, name, pincode) keep .min(1).
+  uid: z.string().optional(),
   name: z.string().min(1),
-  address: z.string().min(1).optional(),
+  address: z.string().optional(),
   // The store form collects the same columns as the store template, so the
   // address arrives as ADDR_1..ADDR_5 and the four context columns as their
   // own fields. ADDR_2..ADDR_5 stay optional: real addresses are rarely five
@@ -43,14 +56,16 @@ router.post('/', requirePrivilege('store.manage'), validate(z.object({
   pincode: z.string().min(1),
   lat: coord,
   long: coord,
-  contact_no: z.string().min(1).optional(),
-  contact_email: z.string().min(1).optional(),
-  contact_person: z.string().min(1).optional(),
+  contact_no: z.string().optional(),
+  contact_email: z.string().optional(),
+  contact_person: z.string().optional(),
   outlet_status: z.string().optional(),
   // Retained (not required): stores keep their vendor relationship, the store
   // creation form just no longer asks for it. New stores may have vendor_id NULL.
   vendor_id: z.string().uuid().optional(),
-})), createStore as any);
+});
+
+router.post('/', requirePrivilege('store.manage'), validate(storeCreateBody), createStore as any);
 
 router.patch('/:id', requirePrivilege('store.manage'), validate(z.object({
   customer_code: z.string().min(1).optional(),
