@@ -75,6 +75,8 @@ export function TaskDetail() {
           <div style={{ fontWeight: 700 }}>{task.store_name ?? '—'}</div>
           <div className="meta">{task.store_address}</div>
           {task.store_pincode && <div className="meta">Pincode: {task.store_pincode}</div>}
+          {/* Pamphlet drops aren't tied to a store, so the employee-entered pincode is the only one. */}
+          {!task.store_pincode && task.pincode && <div className="meta">Pincode: {task.pincode}</div>}
           {task.store_uid && <div className="meta">Customer Code: {task.store_uid}</div>}
           {task.brand_name && <div className="meta">Brand: {task.brand_name}</div>}
           {task.vendor_name && <div className="meta">Vendor: {task.vendor_name}</div>}

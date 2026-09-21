@@ -121,6 +121,13 @@ router.post('/:id/install', validate(z.object({
   pincode: z.string().optional(),
   // Boarding install fields:
   signages: installSignageSchema.optional(),
+}).superRefine((data, ctx) => {
+  // Pincode is mandatory for a pamphlet submission (identified by `photos`
+  // being present) but doesn't apply to a boarding submission (`signages`),
+  // so it can't just be `.min(1)` on the shared schema.
+  if (data.photos?.length && !data.pincode?.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pincode'], message: 'is required when submitting pamphlet photos' });
+  }
 })), submitInstallation as any);
 
 export default router;

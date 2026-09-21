@@ -36,6 +36,7 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
   const [shots, setShots] = useState<InstallShot[]>([]);
   // pamphlet-only state
   const [pamphletShots, setPamphletShots] = useState<PamphletShot[]>([]);
+  const [pincode, setPincode] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -74,6 +75,7 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
 
   async function handlePamphletSubmit() {
     if (pamphletShots.length === 0) { Alert.alert('Required', 'Take at least one photo'); return; }
+    if (!pincode.trim()) { Alert.alert('Required', 'Enter the pincode for this drop before submitting'); return; }
     setSubmitting(true);
     try {
       const uploaded: PamphletPhotoPayload[] = [];
@@ -90,6 +92,7 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
       }
       await submitInstallation(taskId, {
         notes: notes || undefined,
+        pincode: pincode.trim(),
         photos: uploaded,
       });
       Alert.alert('Done', 'Task marked as completed.', [{ text: 'OK', onPress: () => router.back() }]);
@@ -144,6 +147,16 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
       {/* -------------------- Pamphlet distribution -------------------- */}
       {isPamphlet && (
         <>
+          <Text style={styles.fieldLabel}>Pincode *</Text>
+          <TextInput
+            style={styles.input}
+            value={pincode}
+            onChangeText={setPincode}
+            placeholder="e.g. 560001"
+            keyboardType="number-pad"
+            maxLength={6}
+            placeholderTextColor={colors.textMuted}
+          />
           <PamphletDistribution
             target={task.target_pamphlet_count}
             value={pamphletShots}
@@ -203,7 +216,7 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
           : 'Mark as Completed'}
         onPress={isPamphlet ? handlePamphletSubmit : handleBoardingSubmit}
         loading={submitting || uploading}
-        disabled={isPamphlet && pamphletShots.length === 0}
+        disabled={isPamphlet && (pamphletShots.length === 0 || !pincode.trim())}
         style={styles.btn}
       />
     </ScrollView>

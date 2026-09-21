@@ -190,6 +190,12 @@ export async function submitInstallation(req: AuthRequest, res: Response) {
     if (!photos?.length) {
       res.status(400).json({ error: 'Take at least one photo to submit' }); return;
     }
+    // Defense-in-depth: the route's zod schema already requires this whenever
+    // `photos` is present, but re-check here too (matches the same
+    // require-and-recheck pattern the mobile UI uses before calling in).
+    if (!pincode?.trim()) {
+      res.status(400).json({ error: 'Pincode is required for pamphlet distribution' }); return;
+    }
     const first = photos[0];
     const { rows } = await pool.query(
       `INSERT INTO task_steps (task_id, step_type, performed_by, lat, long, notes, pamphlet_count)
@@ -203,7 +209,7 @@ export async function submitInstallation(req: AuthRequest, res: Response) {
         [rows[0].id, p.photo_url, p.lat ?? null, p.long ?? null, p.area_label ?? null, p.brand_label ?? null]
       );
     }
-    if (pincode) await pool.query('UPDATE tasks SET pincode = $1 WHERE id = $2', [pincode, task.id]);
+    await pool.query('UPDATE tasks SET pincode = $1 WHERE id = $2', [pincode.trim(), task.id]);
     const updated = await transitionTask(task.id, 'completed');
     res.json(updated);
     return;

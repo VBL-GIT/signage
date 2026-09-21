@@ -51,7 +51,7 @@ export interface PamphletPhotoPayload {
 }
 
 export type InstallationPayload =
-  | { notes?: string; pincode?: string; photos: PamphletPhotoPayload[] }
+  | { notes?: string; pincode: string; photos: PamphletPhotoPayload[] }
   | { notes?: string; signages: InstallSignagePayload[] };
 
 export async function submitInstallation(taskId: string, body: InstallationPayload): Promise<Task> {
