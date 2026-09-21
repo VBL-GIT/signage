@@ -164,6 +164,9 @@ export interface Task {
   supervisor_name: string | null;
   brand_id: string | null;
   brand_name: string | null;
+  artwork_id: string | null;
+  artwork_name: string | null;
+  artwork_image_url: string | null;
   boarding_size_id: string | null;
   boarding_size_label: string | null;
   custom_width_cm: number | null;

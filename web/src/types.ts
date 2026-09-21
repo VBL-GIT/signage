@@ -110,6 +110,7 @@ export interface Task {
   vendor_id: string | null; vendor_name: string | null; vendor_uid?: string | null;
   employee_id: string | null; employee_name: string | null;
   brand_id: string | null; brand_name: string | null;
+  artwork_id: string | null; artwork_name: string | null; artwork_image_url: string | null;
   boarding_size_label: string | null; target_pamphlet_count: number | null; pincode: string | null;
   created_at: string; updated_at: string;
   completed_at?: string | null; assigned_at?: string | null; assignment_count?: number | null;

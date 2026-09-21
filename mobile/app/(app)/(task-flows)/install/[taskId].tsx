@@ -87,7 +87,6 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
           lat: s.lat ?? undefined,
           long: s.long ?? undefined,
           area_label: s.area,
-          brand_label: s.brand,
         });
       }
       await submitInstallation(taskId, {
@@ -161,6 +160,9 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
             target={task.target_pamphlet_count}
             value={pamphletShots}
             onChange={setPamphletShots}
+            brandName={task.brand_name}
+            artworkName={task.artwork_name}
+            artworkImageUrl={task.artwork_image_url}
           />
         </>
       )}

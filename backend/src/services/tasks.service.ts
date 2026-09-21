@@ -23,12 +23,14 @@ export async function getTaskById(taskId: string) {
        COALESCE(s.customer_code, s.uid) as store_uid, s.contact_no as store_contact_no, s.pincode as store_pincode,
        s.contact_email as store_contact_email, s.contact_person as store_contact_person,
        b.name as brand_name,
+       a.name as artwork_name, a.image_url as artwork_image_url,
        sbs.label as boarding_size_label,
        e.name as employee_name,
        sup.name as supervisor_name
      FROM tasks t
      LEFT JOIN stores s ON s.id = t.store_id
      LEFT JOIN brands b ON b.id = t.brand_id
+     LEFT JOIN artworks a ON a.id = t.artwork_id
      LEFT JOIN standard_boarding_sizes sbs ON sbs.id = t.boarding_size_id
      LEFT JOIN users e ON e.id = t.employee_id
      LEFT JOIN users sup ON sup.id = t.supervisor_id

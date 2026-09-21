@@ -47,7 +47,6 @@ export interface PamphletPhotoPayload {
   lat?: number;
   long?: number;
   area_label?: string;
-  brand_label?: string;
 }
 
 export type InstallationPayload =

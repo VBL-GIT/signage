@@ -202,11 +202,15 @@ export async function submitInstallation(req: AuthRequest, res: Response) {
        VALUES ($1,'installation',$2,$3,$4,$5,$6) RETURNING id`,
       [task.id, req.user!.id, first.lat ?? null, first.long ?? null, notes || null, photos.length]
     );
+    // Brand is a single preset the admin chose at task creation (task.brand_id),
+    // shown read-only to the employee — not typed per photo — so every photo
+    // carries the same brand_id. brand_label is kept only for older tasks that
+    // predate the preset and still send free text.
     for (const p of photos) {
       await pool.query(
-        `INSERT INTO task_step_photos (task_step_id, photo_url, lat, long, area_label, brand_label)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [rows[0].id, p.photo_url, p.lat ?? null, p.long ?? null, p.area_label ?? null, p.brand_label ?? null]
+        `INSERT INTO task_step_photos (task_step_id, photo_url, lat, long, area_label, brand_label, brand_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [rows[0].id, p.photo_url, p.lat ?? null, p.long ?? null, p.area_label ?? null, p.brand_label ?? null, task.brand_id ?? null]
       );
     }
     await pool.query('UPDATE tasks SET pincode = $1 WHERE id = $2', [pincode.trim(), task.id]);

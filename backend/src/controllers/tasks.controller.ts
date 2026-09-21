@@ -49,11 +49,12 @@ export async function listTasks(req: AuthRequest, res: Response) {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await pool.query(
     `SELECT t.*, s.name as store_name, COALESCE(s.customer_code, s.uid) as store_uid, s.pincode as store_pincode,
-            b.name as brand_name,
+            b.name as brand_name, a.name as artwork_name, a.image_url as artwork_image_url,
             e.name as employee_name, v.name as vendor_name, v.uid as vendor_uid
      FROM tasks t
      LEFT JOIN stores s ON s.id = t.store_id
      LEFT JOIN brands b ON b.id = t.brand_id
+     LEFT JOIN artworks a ON a.id = t.artwork_id
      LEFT JOIN users e ON e.id = t.employee_id
      LEFT JOIN vendors v ON v.id = t.vendor_id
      ${where}
@@ -160,9 +161,20 @@ export async function createTask(req: AuthRequest, res: Response) {
   if (boarding_size_id && await missingRef('SELECT 1 FROM standard_boarding_sizes WHERE id = $1', boarding_size_id)) {
     res.status(404).json({ error: 'Boarding size not found' }); return;
   }
+  if (artwork_id && brand_id) {
+    const { rows: aw } = await pool.query('SELECT brand_id FROM artworks WHERE id = $1', [artwork_id]);
+    if (aw[0]?.brand_id !== brand_id) {
+      res.status(400).json({ error: 'Selected artwork does not belong to the chosen brand' }); return;
+    }
+  }
 
   const isInstall = task_type === 'installation';
   const isBoarding = isInstall && installation_type === 'direct_boarding';
+  const isPamphlet = isInstall && installation_type === 'direct';
+  // Brand + artwork are a single admin-set preset shown read-only to the
+  // employee, for either kind of admin-created installation. Size/dimensions
+  // stay boarding-only — a pamphlet drop has no signage to size.
+  const allowsBrandArtwork = isBoarding || isPamphlet;
 
   const { rows } = await pool.query(
     `INSERT INTO tasks (task_type, installation_type, vendor_id, store_id, employee_id, supervisor_id,
@@ -170,8 +182,8 @@ export async function createTask(req: AuthRequest, res: Response) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [task_type, isInstall ? installation_type : null, vendor_id,
      store_id || null, employee_id || null, supervisor_id || null,
-     isBoarding ? (brand_id || null) : null,
-     isBoarding ? (artwork_id || null) : null,
+     allowsBrandArtwork ? (brand_id || null) : null,
+     allowsBrandArtwork ? (artwork_id || null) : null,
      isBoarding ? (boarding_size_id || null) : null,
      isBoarding ? (custom_width_cm || null) : null,
      isBoarding ? (custom_height_cm || null) : null,

@@ -330,6 +330,7 @@ function TaskForm() {
       });
       else await createTask({
         task_type: 'installation', installation_type: 'direct', vendor_id: vendorId, store_id: storeId || undefined,
+        brand_id: brandId || undefined, artwork_id: artworkId || undefined,
         pincode: pincode.trim() || undefined, target_pamphlet_count: target.trim() ? Number(target) : undefined,
       });
       s.setOk('Task created and assigned to the vendor');
@@ -368,7 +369,7 @@ function TaskForm() {
       <p className="meta" style={{ marginTop: 4 }}>
         Stores are matched on Customer Code. Type a code to find one; the name is shown alongside to confirm.
       </p>
-      {kind === 'boarding' && (
+      {(kind === 'boarding' || kind === 'pamphlet') && (
         <>
           <label>Brand (optional)</label>
           <SearchableSelect
@@ -392,6 +393,10 @@ function TaskForm() {
               </>
             );
           })()}
+        </>
+      )}
+      {kind === 'boarding' && (
+        <>
           <label>Board Size (optional)</label>
           <SearchableSelect
             value={sizeId}

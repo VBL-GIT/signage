@@ -3,6 +3,7 @@ import { View, Text, Image, StyleSheet, TouchableOpacity, TextInput, Modal, Scro
 import { CameraView } from 'expo-camera';
 import { useCamera } from '../../hooks/useCamera';
 import { useLocation } from '../../hooks/useLocation';
+import { useLightbox } from '../ui/Lightbox';
 import { Button } from '../ui/Button';
 import { colors, spacing, radius } from '../../constants/theme';
 
@@ -11,24 +12,30 @@ export interface PamphletShot {
   lat: number | null;
   long: number | null;
   area: string;
-  brand: string;
 }
 
 interface Props {
   target: number | null;
   value: PamphletShot[];
   onChange: (v: PamphletShot[]) => void;
+  // Brand + artwork are a single preset the admin chose when creating the
+  // task (not typed by the employee) — shown read-only, same as a boarding
+  // install's planned signage.
+  brandName: string | null;
+  artworkName: string | null;
+  artworkImageUrl: string | null;
 }
 
 type Mode = 'idle' | 'camera' | 'form';
 
 /**
  * Pamphlet distribution capture: the employee takes one photo per drop point.
- * Each capture grabs GPS, then asks for the store/area and brand before it
- * counts. A running Target / Taken / Pending header updates on every add and
- * delete, and a review screen lets the employee inspect and remove any photo.
+ * Each capture grabs GPS, then asks for the store/area before it counts. A
+ * running Target / Taken / Pending header updates on every add and delete,
+ * and a review screen lets the employee inspect and remove any photo.
  */
-export function PamphletDistribution({ target, value, onChange }: Props) {
+export function PamphletDistribution({ target, value, onChange, brandName, artworkName, artworkImageUrl }: Props) {
+  const { open: zoom } = useLightbox();
   const { permission, requestPermission, cameraRef, takePicture } = useCamera();
   const { capture } = useLocation();
   const [mode, setMode] = useState<Mode>('idle');
@@ -36,7 +43,6 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
   const [draftCoords, setDraftCoords] = useState<{ lat: number; long: number } | null>(null);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [area, setArea] = useState('');
-  const [brand, setBrand] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const taken = value.length;
@@ -47,7 +53,6 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
     if (!uri) return;
     setDraftUri(uri);
     setArea('');
-    setBrand('');
     setDraftCoords(null);
     setMode('form');
     setGpsBusy(true);
@@ -57,10 +62,10 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
   }
 
   function saveDraft() {
-    if (!draftUri || !area.trim() || !brand.trim()) return;
+    if (!draftUri || !area.trim()) return;
     onChange([...value, {
       uri: draftUri, lat: draftCoords?.lat ?? null, long: draftCoords?.long ?? null,
-      area: area.trim(), brand: brand.trim(),
+      area: area.trim(),
     }]);
     setDraftUri(null);
     setMode('idle');
@@ -75,6 +80,20 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
       <Tile label="Target" value={target != null ? String(target) : '—'} />
       <Tile label="Taken" value={String(taken)} accent />
       <Tile label="Pending" value={pending != null ? String(pending) : '—'} />
+    </View>
+  );
+
+  const preset = (
+    <View style={styles.refRow}>
+      {artworkImageUrl && (
+        <TouchableOpacity activeOpacity={0.85} onPress={() => zoom({ uri: artworkImageUrl })}>
+          <Image source={{ uri: artworkImageUrl }} style={styles.refImg} />
+        </TouchableOpacity>
+      )}
+      <View style={styles.reqBox}>
+        <Text style={styles.reqLine}>Brand: {brandName ?? 'Not specified'}</Text>
+        <Text style={styles.reqLine}>Artwork: {artworkName ?? 'Not specified'}</Text>
+      </View>
     </View>
   );
 
@@ -111,10 +130,11 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
 
   // ---- per-photo entry form ----
   if (mode === 'form' && draftUri) {
-    const canSave = !!area.trim() && !!brand.trim();
+    const canSave = !!area.trim();
     return (
       <View style={{ gap: spacing.md }}>
         {tiles}
+        {preset}
         <Text style={styles.formTitle}>Pamphlet #{taken + 1}</Text>
         <Image source={{ uri: draftUri }} style={styles.preview} />
         <Text style={styles.gps}>
@@ -126,11 +146,6 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
           <Text style={styles.label}>Store / Area *</Text>
           <TextInput style={styles.input} value={area} onChangeText={setArea}
             placeholder="e.g. MG Road, near Store 12" placeholderTextColor={colors.textMuted} />
-        </View>
-        <View>
-          <Text style={styles.label}>Brand *</Text>
-          <TextInput style={styles.input} value={brand} onChangeText={setBrand}
-            placeholder="e.g. Pepsi" placeholderTextColor={colors.textMuted} />
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <Button title="Retake" variant="secondary" onPress={() => setMode('camera')} style={{ flex: 1 }} />
@@ -144,6 +159,7 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
   return (
     <View style={{ gap: spacing.md }}>
       {tiles}
+      {preset}
       <Button title="📷 Take Photo" onPress={() => setMode('camera')} />
       {taken > 0 && (
         <Button title={`Review Photos (${taken})`} variant="secondary" onPress={() => setReviewOpen(true)} />
@@ -165,7 +181,6 @@ export function PamphletDistribution({ target, value, onChange }: Props) {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.reviewIdx}>#{i + 1}</Text>
                   <Text style={styles.reviewMeta}>🏬 {s.area}</Text>
-                  <Text style={styles.reviewMeta}>🏷️ {s.brand}</Text>
                   <Text style={styles.reviewMetaMuted}>
                     {s.lat != null && s.long != null ? `📍 ${s.lat.toFixed(5)}, ${s.long.toFixed(5)}` : '📍 —'}
                   </Text>
@@ -219,6 +234,13 @@ const styles = StyleSheet.create({
 
   formTitle: { fontSize: 16, fontWeight: '700', color: colors.primary },
   preview: { width: '100%', height: 240, borderRadius: radius.md, backgroundColor: colors.background },
+  refRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, alignItems: 'center' },
+  refImg: { width: 60, height: 60, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: colors.background },
+  reqBox: {
+    flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.sm, padding: spacing.sm, gap: 2,
+  },
+  reqLine: { fontSize: 13, color: colors.textSecondary },
   gps: { fontSize: 13, color: colors.success, fontWeight: '600' },
   label: { fontSize: 13, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
   input: {
