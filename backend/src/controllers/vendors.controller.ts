@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 import { sendVendorWelcomeEmail } from '../services/email.service';
-import { validateEmail } from '../services/validation';
+import { validateEmail, validateOptionalEmail } from '../services/validation';
 
 const COLUMNS = 'id, uid, code, name, contact_person, contact_phone, contact_email, remarks, is_active, created_at';
 
@@ -14,16 +14,22 @@ export async function listVendors(_req: AuthRequest, res: Response) {
 export async function createVendor(req: AuthRequest, res: Response) {
   const { uid, name, contact_person, contact_phone, remarks } = req.body;
 
-  // Syntax + typo check before anything else, so an obviously-wrong address is
-  // rejected with a useful message rather than stored and silently undeliverable.
-  const syntax = validateEmail(req.body.contact_email, 'contact_email');
+  // CONTACT_EMAIL may be blank: a vendor master is a record, not a login, and
+  // plenty of them are onboarded before anyone has an address for them. An
+  // address that IS given still gets the full syntax + typo check, so a blank
+  // field saves and a wrong one is still refused.
+  const syntax = validateOptionalEmail(req.body.contact_email, 'CONTACT_EMAIL');
   if (!syntax.ok) { res.status(400).json({ error: syntax.reason }); return; }
   const contact_email = syntax.value;
 
-  const { rows: dupe } = await pool.query(
-    'SELECT id FROM vendors WHERE lower(contact_email) = lower($1)', [contact_email]
-  );
-  if (dupe.length) { res.status(409).json({ error: 'A vendor with this email already exists' }); return; }
+  // Only meaningful when an address was given — two vendors with no email are
+  // not duplicates of each other.
+  if (contact_email) {
+    const { rows: dupe } = await pool.query(
+      'SELECT id FROM vendors WHERE lower(contact_email) = lower($1)', [contact_email]
+    );
+    if (dupe.length) { res.status(409).json({ error: 'A vendor with this email already exists' }); return; }
+  }
 
   // Vendor names are the human handle used across the console and the task
   // importer, so flag an exact-name collision instead of creating a second
@@ -88,7 +94,7 @@ export async function updateVendor(req: AuthRequest, res: Response) {
   let cleanEmail: string | null | undefined;
   if (contact_email !== undefined) {
     if (contact_email.trim()) {
-      const syntax = validateEmail(contact_email, 'contact_email');
+      const syntax = validateEmail(contact_email, 'CONTACT_EMAIL');
       if (!syntax.ok) { res.status(400).json({ error: syntax.reason }); return; }
       cleanEmail = syntax.value;
       const { rows: dupe } = await pool.query(

@@ -13,12 +13,18 @@ router.get('/', requireRole('rjcorp_admin', 'rjcorp_user'), listVendors as any);
 router.post('/',
   requirePrivilege('vendor.manage'),
   validate(z.object({
-    uid: z.string().min(1).optional(), // auto-generated from code when omitted
+    uid: z.string().optional(), // auto-generated from code when omitted
+    // COMPANY_NAME is the only thing a vendor master cannot be created without:
+    // it is the handle the console and the task importer resolve vendors by.
     name: z.string().min(1),
-    contact_person: z.string().min(1),
-    contact_phone: z.string().min(1),
-    // Shape only; validateEmail() in createVendor trims and validates.
-    contact_email: z.string().min(1),
+    // The contact details may all be blank. A form posts every input it draws,
+    // so an untouched one arrives as "" — `.min(1)` rejected exactly that and
+    // made an optional field mandatory in practice. validateOptionalEmail() in
+    // createVendor still applies the full syntax + typo rules to an address
+    // that IS given.
+    contact_person: z.string().optional(),
+    contact_phone: z.string().optional(),
+    contact_email: z.string().optional(),
     // Free-text operator note. Optional, and never used in a business rule.
     remarks: z.string().max(2000).optional(),
   })), createVendor as any);

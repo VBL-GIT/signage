@@ -21,13 +21,19 @@ interface Channel {
 }
 
 // Top-level channels (each is its own tab).
+// Column names are written exactly as the templates spell them — ALL CAPS —
+// because that is what the operator is looking at in the sheet. Matching is
+// case-insensitive, so a lower-case sheet still imports; the caps here are
+// about naming the column unambiguously, not about what will be accepted.
 const SIMPLE: Channel[] = [
   { key: 'vendors', label: 'Vendors', target: 'vendors', templateBase: 'vendors', priv: 'vendor.manage',
-    hint: 'company_name (required), contact_person, contact_phone, contact_email, remarks — UID is auto-generated' },
+    hint: 'COMPANY_NAME (required), CONTACT_PERSON, CONTACT_PHONE, CONTACT_EMAIL, REMARKS — UID is auto-generated',
+    note: 'COMPANY_NAME is the only column that must have a value, and it must be unique across vendors. CONTACT_PERSON, CONTACT_PHONE, CONTACT_EMAIL and REMARKS may all be left blank — a vendor master is a record, not a login. A CONTACT_EMAIL that IS filled in must be a valid address and unique across vendors.' },
   // Target stays 'users' — that is the API endpoint. Only the label and the
   // template file are named for employees, which is what these rows create.
   { key: 'users', label: 'Employees', target: 'users', templateBase: 'employees', priv: 'user.manage',
-    hint: 'first_name, last_name, email, role, mobile, vendor_uid (optional) — a temporary password is generated and emailed to each account' },
+    hint: 'FIRST_NAME, LAST_NAME, EMAIL, ROLE, VENDOR_UID (required), MOBILE (optional)',
+    note: 'EMAIL is the account’s login and where its temporary password is sent, so every row needs one and it must be unique. VENDOR_UID says which vendor the account belongs to — RJCorp accounts have no vendor and are created under Onboarding instead. MOBILE may be left blank. Passwords are never read from the sheet: each account gets a generated one.' },
 ];
 
 // One store template — the customer-master layout. The backend detects the
@@ -35,18 +41,18 @@ const SIMPLE: Channel[] = [
 // and there is no format to pick.
 const STORE_SUBS: Channel[] = [
   { key: 'stores', label: 'Stores', target: 'stores', templateBase: 'stores', priv: 'store.manage',
-    hint: 'HOS, State_CD, Cust_CD, Cust_name, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS',
-    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical, and the Guide sheet explains each one. Cust_CD is the Customer Code: an existing code updates that store in place and its tasks stay attached, a new code creates one. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". HOS, State_CD, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. Column names are matched ignoring case and punctuation, so Cust_CD, CUST_CD and "cust cd" all work, and LATTITUDE is accepted for LATITUDE. This export has no email column, so any contact email already on record is left untouched. Sheets saved from the older customer_code/name/address template still import here too.' },
+    hint: 'HOS, STATE_CD, CUST_CD, CUST_NAME, CONT_PR, MOBILE_NO, ADDR_1…ADDR_5, ADDR_POSTAL, CHANNEL, SUB_CHANNEL, LATITUDE, LONGITUDE, CUST_STATUS',
+    note: 'Upload the customer-master export unchanged, or start from the template — the columns are identical, and the Guide sheet explains each one. CUST_CD is the Customer Code: an existing code updates that store in place and its tasks stay attached, a new code creates one. ADDR_1…ADDR_5 are joined into one address, dropping blanks, "-" and "NA". HOS, STATE_CD, CHANNEL and SUB_CHANNEL have no field of their own but are still kept with the store as source data. CONT_PR and MOBILE_NO may be left blank. Column names are matched ignoring case and punctuation, so CUST_CD, cust_cd and "cust cd" all work, and LATTITUDE is accepted for LATITUDE — but a misspelled column is reported rather than ignored. This export has no email column, so any contact email already on record is left untouched. Sheets saved from the older CUSTOMER_CODE / NAME / ADDRESS template still import here too.' },
 ];
 
 // Task sub-channels — shown as sub-tabs under the single "Tasks" tab.
 const TASK_SUBS: Channel[] = [
   { key: 'recee', label: 'Recee', target: 'tasks', kind: 'recee', templateBase: 'tasks_recee', priv: 'task.create',
-    hint: 'vendor_uid and customer_code (both required)' },
+    hint: 'VENDOR_UID and CUSTOMER_CODE (both required)' },
   { key: 'direct', label: 'Direct Installation', target: 'tasks', kind: 'direct', templateBase: 'tasks_direct', priv: 'task.create',
-    hint: 'vendor_uid (required), pincode, target_pamphlet_count, and optionally customer_code — pamphlet distribution' },
+    hint: 'VENDOR_UID (required), PINCODE, TARGET_PAMPHLET_COUNT, and optionally CUSTOMER_CODE — pamphlet distribution' },
   { key: 'boarding', label: 'Installation w/o Recee', target: 'tasks', kind: 'direct_boarding', templateBase: 'tasks_boarding', priv: 'task.create',
-    hint: 'vendor_uid and customer_code (both required), brand_name, artwork_name (must match the brand), width_in, height_in (board size in inches)' },
+    hint: 'VENDOR_UID and CUSTOMER_CODE (both required), BRAND_NAME, ARTWORK_NAME (must match the brand), WIDTH_IN, HEIGHT_IN (board size in inches)' },
 ];
 
 export function BulkUpload() {
@@ -135,7 +141,12 @@ export function BulkUpload() {
             <a className="meta" href={`/templates/${channel.templateBase}_sample.xlsx`} download>or a filled sample</a>
           </div>
         )}
-        <div className="meta" style={{ marginBottom: 12 }}>Download the template, fill in your rows, then upload the .xlsx below. All-or-nothing: if any row has a problem, nothing is imported — fix the flagged rows and re-upload.</div>
+        <div className="meta" style={{ marginBottom: 12 }}>
+          Download the template, fill in your rows, then upload the .xlsx below. All-or-nothing: if any
+          row has a problem, nothing is imported — fix the flagged rows and re-upload. Column names are
+          matched ignoring case and punctuation, so CUST_CD, cust_cd and “cust cd” are the same column;
+          a name that is genuinely misspelled is reported instead of being silently ignored.
+        </div>
 
         <input type="file" accept=".xlsx" onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); }} />
         <Button onClick={submit} disabled={busy} style={{ marginTop: 14 }}>{busy ? 'Uploading…' : `Upload ${channel.label}`}</Button>

@@ -55,14 +55,15 @@ function VendorForm() {
   const [remarks, setRemarks] = useState('');
   async function submit() {
     s.setErr(null); s.setOk(null);
-    if (!name.trim() || !person.trim() || !phone.trim() || !email.trim()) {
-      s.setErr('Company name, contact person, phone and email are all required'); return;
-    }
+    // COMPANY_NAME is the only thing a vendor master needs. The contact
+    // details may all be blank — a vendor record is not a login, and they are
+    // routinely onboarded before anyone has a name or an address for them.
+    if (!name.trim()) { s.setErr('COMPANY_NAME is required'); return; }
     s.setBusy(true);
     try {
       const v = await createVendor({
-        name: name.trim(), contact_person: person.trim(), contact_phone: phone.trim(), contact_email: email.trim(),
-        remarks: remarks.trim() || undefined,
+        name: name.trim(), contact_person: person.trim(), contact_phone: phone.trim(),
+        contact_email: email.trim(), remarks: remarks.trim(),
       });
       s.setOk(`Vendor "${v.name}" created · UID ${v.uid}`);
       setName(''); setPerson(''); setPhone(''); setEmail(''); setRemarks('');
@@ -72,16 +73,20 @@ function VendorForm() {
     <Card>
       <h3>Onboard Vendor</h3>
       <ErrorBanner msg={s.err} />{s.ok && <div className="banner-ok">{s.ok}</div>}
-      <label>Company Name *</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Acme Signage Co" />
+      <label>COMPANY_NAME *</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Acme Signage Co" />
       <div className="grid2">
-        <div><label>Contact Person Name *</label><input value={person} onChange={(e) => setPerson(e.target.value)} /></div>
-        <div><label>Contact Person Phone *</label><input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+        <div><label>CONTACT_PERSON</label><input value={person} onChange={(e) => setPerson(e.target.value)} /></div>
+        <div><label>CONTACT_PHONE</label><input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
       </div>
-      <label>Vendor Email *</label><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="contact@vendor.com" />
-      <label>Remarks</label>
+      <label>CONTACT_EMAIL</label><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="contact@vendor.com" />
+      <label>REMARKS</label>
       <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} maxLength={2000}
         placeholder="Optional note about this vendor" />
-      <p className="meta" style={{ marginTop: 6 }}>Everything except Remarks is required. Company name and email must each be unique across vendors. A vendor UID is generated automatically.</p>
+      <p className="meta" style={{ marginTop: 6 }}>
+        Only COMPANY_NAME is required — CONTACT_PERSON, CONTACT_PHONE, CONTACT_EMAIL and REMARKS
+        may all be left blank. COMPANY_NAME must be unique across vendors, and so must
+        CONTACT_EMAIL when one is given. A vendor UID is generated automatically.
+      </p>
       <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Create Vendor</Button>
     </Card>
   );
@@ -111,10 +116,14 @@ function StoreForm() {
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   async function submit() {
     s.setErr(null); s.setOk(null);
-    // Same required set the template enforces; only ADDR_2..ADDR_5 may be blank.
+    // Same required set the template enforces. Blank is allowed for
+    // ADDR_2..ADDR_5, for the contact details (CONT_PR, MOBILE_NO,
+    // CONTACT_EMAIL) and for nothing else — a contact detail is information
+    // about a store, not part of one, and demanding it stopped stores being
+    // saved over a field nobody had yet.
     const missing = ([
-      ['HOS', 'HOS'], ['State_CD', 'State_CD'], ['customer_code', 'Customer Code'], ['name', 'Name'],
-      ['contact_person', 'CONT_PR'], ['contact_no', 'MOBILE_NO'], ['ADDR_1', 'ADDR_1'],
+      ['HOS', 'HOS'], ['State_CD', 'STATE_CD'], ['customer_code', 'CUST_CD'], ['name', 'CUST_NAME'],
+      ['ADDR_1', 'ADDR_1'],
       ['pincode', 'ADDR_POSTAL'], ['CHANNEL', 'CHANNEL'], ['SUB_CHANNEL', 'SUB_CHANNEL'],
       ['lat', 'LATITUDE'], ['long', 'LONGITUDE'], ['outlet_status', 'CUST_STATUS'],
     ] as [keyof typeof f, string][]).filter(([k]) => !f[k].trim()).map(([, label]) => label);
@@ -152,11 +161,11 @@ function StoreForm() {
       </p>
       <div className="grid2">
         <div><label>HOS *</label><input value={f.HOS} onChange={set('HOS')} placeholder="Head of sales" /></div>
-        <div><label>State_CD *</label><input value={f.State_CD} onChange={set('State_CD')} placeholder="e.g. MH" /></div>
-        <div><label>Cust_CD (Customer Code) *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
-        <div><label>Cust_name *</label><input value={f.name} onChange={set('name')} /></div>
-        <div><label>CONT_PR *</label><input value={f.contact_person} onChange={set('contact_person')} placeholder="Contact person" /></div>
-        <div><label>MOBILE_NO *</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
+        <div><label>STATE_CD *</label><input value={f.State_CD} onChange={set('State_CD')} placeholder="e.g. MH" /></div>
+        <div><label>CUST_CD (Customer Code) *</label><input value={f.customer_code} onChange={set('customer_code')} placeholder="e.g. YG000000026" /></div>
+        <div><label>CUST_NAME *</label><input value={f.name} onChange={set('name')} /></div>
+        <div><label>CONT_PR</label><input value={f.contact_person} onChange={set('contact_person')} placeholder="Contact person" /></div>
+        <div><label>MOBILE_NO</label><input value={f.contact_no} onChange={set('contact_no')} /></div>
       </div>
       <label>ADDR_1 *</label><input value={f.ADDR_1} onChange={set('ADDR_1')} />
       <div className="grid2">
@@ -173,11 +182,12 @@ function StoreForm() {
         <div><label>LATITUDE *</label><input value={f.lat} onChange={set('lat')} placeholder="19.0760" /></div>
         <div><label>LONGITUDE *</label><input value={f.long} onChange={set('long')} placeholder="72.8777" /></div>
       </div>
-      <label>Contact Email</label><input value={f.contact_email} onChange={set('contact_email')} placeholder="store@example.com (optional)" />
+      <label>CONTACT_EMAIL</label><input value={f.contact_email} onChange={set('contact_email')} placeholder="store@example.com (optional)" />
       <p className="meta" style={{ marginTop: 4 }}>
-        These are the same columns as the Stores bulk template, in the same order.
-        ADDR_1–ADDR_5 are joined into one address; only ADDR_2–ADDR_5 may be left blank.
-        Contact Email is the one extra and is optional — the customer-master export has no
+        These are the same columns as the Stores bulk template, in the same order, and
+        ADDR_1–ADDR_5 are joined into one address. Everything marked * must have a value;
+        ADDR_2–ADDR_5 and the contact details (CONT_PR, MOBILE_NO, CONTACT_EMAIL) may all be
+        left blank. CONTACT_EMAIL is the one extra column — the customer-master export has no
         email column, so this form is the only place it can be set.
       </p>
       <Button onClick={submit} disabled={s.busy} style={{ marginTop: 14 }}>Save Store</Button>
@@ -206,7 +216,8 @@ function UserForm({ isRjcorp, canAssignRole }: { isRjcorp: boolean; canAssignRol
   }
   async function submit() {
     s.setErr(null); s.setOk(null);
-    if (!f.first_name || !f.last_name || !f.email) { s.setErr('First name, last name, email required'); return; }
+    // MOBILE is optional; EMAIL is the login, so it is not.
+    if (!f.first_name || !f.last_name || !f.email) { s.setErr('FIRST_NAME, LAST_NAME and EMAIL are required'); return; }
     if (needsVendor && !f.vendor_id) { s.setErr('Select a vendor for this account'); return; }
     // Caught here as well as server-side so the account is not created before
     // the admin learns the password was too short to use.

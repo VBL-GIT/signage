@@ -9,7 +9,7 @@ import { SIGNAGE_TYPE_LABELS } from '../types';
 
 const TYPE_LABEL: Record<string, string> = {
   recee: 'Recee',
-  post_recee: 'Installation (from recee)',
+  post_recee: 'Installation (After Recee)',
   direct: 'Direct Installation',
   direct_boarding: 'Installation w/o Recee',
 };

@@ -14,7 +14,7 @@ export const TASK_TYPES = {
 } as const;
 
 export const INSTALLATION_TYPE_LABELS: Record<InstallationType, string> = {
-  post_recee: 'Installation (from recee)',
+  post_recee: 'Installation (After Recee)',
   direct: 'Direct Installation',
   direct_boarding: 'Installation w/o Recee',
 };

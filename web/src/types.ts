@@ -25,7 +25,13 @@ export type Privilege =
   | 'store.manage' | 'artwork.manage' | 'vendor.manage' | 'vendor.status'
   | 'user.manage' | 'user.status' | 'role.manage';
 
-export interface PrivilegeDef { key: Privilege; label: string; }
+/**
+ * `admin_only` privileges belong to RJCorp Admin alone and cannot be put in a
+ * custom role — the server strips them on save and again when it resolves an
+ * RJCorp User's privileges, so the builder shows them as fixed rather than
+ * offering a checkbox that would not stick.
+ */
+export interface PrivilegeDef { key: Privilege; label: string; admin_only?: boolean; }
 export interface Role { id: string; name: string; privileges: Privilege[]; created_at: string; }
 
 export interface User {

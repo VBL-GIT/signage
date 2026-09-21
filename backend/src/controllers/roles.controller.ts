@@ -1,10 +1,16 @@
 import { Response } from 'express';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
-import { PRIVILEGES, ALL_PRIVILEGES, Privilege } from '../auth/privileges';
+import { PRIVILEGES, ALL_PRIVILEGES, RJCORP_ADMIN_ONLY, Privilege } from '../auth/privileges';
 
+/**
+ * The catalog carries `admin_only` so the role builder can show which
+ * privileges cannot be delegated instead of offering a checkbox that would be
+ * stripped on save. Custom roles only ever apply to rjcorp_user accounts, so
+ * these are exactly the privileges a custom role can never carry.
+ */
 export function listPrivilegeCatalog(_req: AuthRequest, res: Response) {
-  res.json(PRIVILEGES);
+  res.json(PRIVILEGES.map((p) => ({ ...p, admin_only: RJCORP_ADMIN_ONLY.includes(p.key) })));
 }
 
 export async function listRoles(_req: AuthRequest, res: Response) {
@@ -12,9 +18,20 @@ export async function listRoles(_req: AuthRequest, res: Response) {
   res.json(rows);
 }
 
+/**
+ * Keep only real privileges, and only ones a custom role may carry.
+ *
+ * A custom role is only ever consulted for an rjcorp_user, so storing an
+ * admin-only privilege on one would promise authority that getEffectivePrivileges
+ * strips at resolve time. Dropping it here keeps the stored role honest about
+ * what it actually grants.
+ */
 function sanitize(privileges: unknown): Privilege[] {
   if (!Array.isArray(privileges)) return [];
-  return privileges.filter((p): p is Privilege => ALL_PRIVILEGES.includes(p as Privilege));
+  return privileges.filter(
+    (p): p is Privilege =>
+      ALL_PRIVILEGES.includes(p as Privilege) && !RJCORP_ADMIN_ONLY.includes(p as Privilege)
+  );
 }
 
 export async function createRole(req: AuthRequest, res: Response) {

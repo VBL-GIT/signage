@@ -8,7 +8,7 @@ import { verifyEmailDeliverable, sendCredentialsEmail } from '../services/email.
 import { generateTemporaryPassword } from '../services/password';
 import { isVaultEnabled, openPassword } from '../services/credential-vault';
 import { validateEmail } from '../services/validation';
-import { isHeadOffice } from '../auth/privileges';
+import { getEffectivePrivileges, isHeadOffice } from '../auth/privileges';
 
 // Edit a user's basic details. Head office may edit anyone; a vendor admin may
 // edit only employees within their own vendor.
@@ -101,10 +101,26 @@ export async function listBoardingSizes(_req: AuthRequest, res: Response) {
   res.json(rows);
 }
 
+/**
+ * List accounts, scoped to what the caller's level covers.
+ *
+ * Three rules, in order of how much they hide:
+ *   - vendor_admin / vendor_user see only their own vendor's accounts.
+ *   - a caller who cannot administer accounts (no user.manage, no user.status)
+ *     sees only field employees. That is everything the assignment pickers
+ *     need, and it is what keeps an rjcorp_user holding an operational custom
+ *     role out of other people's account details — including head office's.
+ *   - rjcorp_admin holds both privileges and no vendor scope, so it sees every
+ *     account at every level, which is the point of it being the top level.
+ */
 export async function listUsers(req: AuthRequest, res: Response) {
   const { role } = req.query;
   const clauses: string[] = [];
   const params: unknown[] = [];
+
+  const privs = await getEffectivePrivileges(req.user!);
+  const administersAccounts = privs.includes('user.manage') || privs.includes('user.status');
+  if (!administersAccounts) clauses.push(`u.role = 'employee'`);
 
   // Vendor admins/users only see users within their own vendor
   if (req.user!.role === 'vendor_admin' || req.user!.role === 'vendor_user') {
