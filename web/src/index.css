@@ -102,6 +102,7 @@ textarea { min-height: 72px; resize: vertical; }
 .badge.recee_submitted { background: #e3f2fd; color: #1565c0; }
 .badge.recee_approved { background: #e8f5e9; color: var(--success); }
 .badge.recee_rejected { background: #fdecea; color: var(--danger); }
+.badge.cancelled { background: #f0f0f3; color: #888; }
 
 /* Tables / lists */
 .row-list { display: grid; gap: 10px; }

@@ -1,7 +1,7 @@
 export type UserRole = 'rjcorp_admin' | 'rjcorp_user' | 'vendor_admin' | 'vendor_user' | 'employee';
 export type TaskType = 'recee' | 'installation';
 export type InstallationType = 'post_recee' | 'direct' | 'direct_boarding';
-export type TaskStatus = 'pending' | 'recee_submitted' | 'recee_approved' | 'recee_rejected' | 'installed' | 'completed';
+export type TaskStatus = 'pending' | 'recee_submitted' | 'recee_approved' | 'recee_rejected' | 'installed' | 'completed' | 'cancelled';
 export type SignageType = 'nonlit' | 'glow_sign_board' | 'impact';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -21,7 +21,7 @@ export const SIGNAGE_TYPE_LABELS: Record<SignageType, string> = {
 export const SIGNAGE_TYPES: SignageType[] = ['nonlit', 'glow_sign_board', 'impact'];
 
 export type Privilege =
-  | 'task.create' | 'task.assign' | 'task.approve'
+  | 'task.create' | 'task.assign' | 'task.approve' | 'task.delete'
   | 'store.manage' | 'artwork.manage' | 'vendor.manage' | 'vendor.status'
   | 'user.manage' | 'user.status' | 'role.manage';
 

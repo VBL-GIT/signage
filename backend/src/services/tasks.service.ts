@@ -9,6 +9,7 @@ const validTransitions: Record<TaskStatus, TaskStatus[]> = {
   recee_rejected: ['recee_submitted'],
   installed: ['completed'],
   completed: [],
+  cancelled: [],
 };
 
 export function canTransition(current: TaskStatus, next: TaskStatus): boolean {
@@ -180,6 +181,20 @@ export async function getSignagePlan(task: {
   }
 
   return [];
+}
+
+/**
+ * Soft-deletes a task: marks it 'cancelled' rather than removing the row, so
+ * its task_steps audit trail (append-only per design) is never destroyed.
+ * Callers must check the current status isn't already 'completed'/'cancelled'
+ * before calling this — it does not itself validate the transition.
+ */
+export async function cancelTask(taskId: string) {
+  const { rows } = await pool.query(
+    `UPDATE tasks SET status = 'cancelled', updated_at = NOW() WHERE id = $1 RETURNING *`,
+    [taskId]
+  );
+  return rows[0];
 }
 
 export async function transitionTask(taskId: string, newStatus: TaskStatus) {

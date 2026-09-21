@@ -8,6 +8,7 @@ export const PRIVILEGES = [
   { key: 'task.create', label: 'Create tasks' },
   { key: 'task.assign', label: 'Assign & reassign tasks' },
   { key: 'task.approve', label: 'Approve / reject recees' },
+  { key: 'task.delete', label: 'Delete / cancel tasks' },
   { key: 'store.manage', label: 'Create & manage stores' },
   { key: 'artwork.manage', label: 'Create & manage artworks' },
   { key: 'vendor.manage', label: 'Create & manage vendors' },
@@ -23,7 +24,7 @@ export const ALL_PRIVILEGES: Privilege[] = PRIVILEGES.map((p) => p.key);
 // Fixed defaults for the non-customisable base roles.
 const DEFAULTS: Record<UserRole, Privilege[]> = {
   rjcorp_admin: ALL_PRIVILEGES,                                  // superuser
-  vendor_admin: ['task.assign', 'user.manage', 'user.status'],   // within own vendor (enforced in controllers)
+  vendor_admin: ['task.assign', 'task.delete', 'user.manage', 'user.status'],   // within own vendor (enforced in controllers)
   vendor_user: [],
   rjcorp_user: [],                                               // comes from the assigned custom role
   employee: [],                                                  // mobile only

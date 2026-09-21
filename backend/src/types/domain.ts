@@ -18,7 +18,8 @@ export type TaskStatus =
   | 'recee_approved'
   | 'recee_rejected'
   | 'installed'
-  | 'completed';
+  | 'completed'
+  | 'cancelled';
 
 export type StepType =
   | 'recee'

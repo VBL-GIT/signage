@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getTask } from '../api';
+import { getTask, deleteTask } from '../api';
+import { apiError } from '../api/client';
 import type { Task } from '../types';
 import { useHasPrivilege } from '../store/auth';
-import { TaskBadge, Button, Card, Spinner } from '../components/ui';
+import { TaskBadge, Button, Card, Spinner, ErrorBanner } from '../components/ui';
 import { AnnotatedImage } from '../components/AnnotatedImage';
 import { useLightbox } from '../components/Lightbox';
 import { formatDistance } from '../lib/distance';
@@ -23,6 +24,8 @@ export function TaskDetail() {
   const { open: zoom } = useLightbox();
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => { if (id) getTask(id).then(setTask).finally(() => setLoading(false)); }, [id]);
 
@@ -36,6 +39,19 @@ export function TaskDetail() {
     (task.task_type === 'recee' && (task.status === 'pending' || task.status === 'recee_rejected')) ||
     (task.task_type === 'installation' && task.status === 'pending')
   );
+  const canDelete = has('task.delete') && task.status !== 'completed' && task.status !== 'cancelled';
+
+  async function handleDelete() {
+    if (!task) return;
+    if (!window.confirm('Delete this task? It will be cancelled and removed from active lists, but its history is kept.')) return;
+    setDeleting(true); setErr(null);
+    try {
+      const updated = await deleteTask(task.id);
+      // Merge in the new status only — `updated` is the bare tasks row and
+      // lacks the joined fields (store_name, steps, …) already on screen.
+      setTask((t) => (t ? { ...t, status: updated.status } : t));
+    } catch (e) { setErr(apiError(e)); } finally { setDeleting(false); }
+  }
   const mapsUrl = task.store_lat != null && task.store_long != null
     ? `https://www.google.com/maps/dir/?api=1&destination=${task.store_lat},${task.store_long}` : null;
   const age = taskAge(task);
@@ -50,6 +66,8 @@ export function TaskDetail() {
           {age.completedInDays != null ? `completed in ${dayLabel(age.completedInDays)}` : `${dayLabel(age.ageDays)} old`}
         </span>
       </div>
+
+      <ErrorBanner msg={err} />
 
       <div className="grid2">
         <Card>
@@ -232,6 +250,11 @@ export function TaskDetail() {
         {canAssign && (
           <Button onClick={() => navigate(`/tasks/${task.id}/assign`)}>
             {task.employee_id ? 'Reassign Employee' : 'Assign to Employee'}
+          </Button>
+        )}
+        {canDelete && (
+          <Button variant="danger" onClick={handleDelete} disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete Task'}
           </Button>
         )}
       </div>

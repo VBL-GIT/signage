@@ -65,6 +65,11 @@ export async function approveBulk(body: {
   const { data } = await api.post('/api/tasks/approve-bulk', body);
   return data as BulkApprovalResult;
 }
+/** Soft-deletes a task (status -> 'cancelled'); its history is kept, not removed. */
+export async function deleteTask(id: string) {
+  const { data } = await api.delete(`/api/tasks/${id}`);
+  return data as Task;
+}
 
 // ---- reference / org
 export async function getVendors() { const { data } = await api.get('/api/vendors'); return data as Vendor[]; }

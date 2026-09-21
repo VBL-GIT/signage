@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
-import { listTasks, getTask, createTask, assignTask, assignBulk } from '../controllers/tasks.controller';
+import { listTasks, getTask, createTask, assignTask, assignBulk, deleteTask } from '../controllers/tasks.controller';
 import {
   submitRecee,
   approveRecee,
@@ -82,6 +82,8 @@ router.post('/', requirePrivilege('task.create'), validate(z.object({
 router.post('/:id/assign', requirePrivilege('task.assign'), validate(z.object({
   employee_id: z.string().uuid(),
 })), assignTask as any);
+
+router.delete('/:id', requirePrivilege('task.delete'), deleteTask as any);
 
 router.post('/:id/recee', validate(z.object({
   notes: z.string().optional(),

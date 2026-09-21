@@ -77,6 +77,7 @@ const STATUS_LABELS: Record<string, string> = {
   recee_rejected: 'Recee Rejected',
   installed: 'Installed',
   completed: 'Completed',
+  cancelled: 'Cancelled',
 };
 export function taskStatusDisplay(task: Pick<Task, 'status' | 'employee_id'>): { key: string; label: string } {
   if (task.status === 'pending') {

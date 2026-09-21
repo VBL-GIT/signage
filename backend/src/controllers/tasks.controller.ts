@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { pool } from '../config/db';
-import { getTaskById, getTaskSteps, getSignagePlan } from '../services/tasks.service';
+import { getTaskById, getTaskSteps, getSignagePlan, cancelTask } from '../services/tasks.service';
 import { AuthRequest } from '../middleware/auth';
 import { isStoreInactive } from '../services/stores.service';
 import { isHeadOffice } from '../auth/privileges';
@@ -254,6 +254,30 @@ export async function assignTask(req: AuthRequest, res: Response) {
     [employee_id, task.id]
   );
   res.json(rows[0]);
+}
+
+/**
+ * Deletes a task — a soft cancel (status → 'cancelled') rather than a row
+ * removal, so its task_steps audit trail is kept. Same vendor-scoping as
+ * assignTask: head office may delete any task, a vendor admin only their own
+ * vendor's. A completed or already-cancelled task cannot be deleted.
+ */
+export async function deleteTask(req: AuthRequest, res: Response) {
+  const task = await getTaskById(req.params.id as string);
+  if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+
+  if (!isHeadOffice(req.user!.role) && task.vendor_id !== req.user!.vendor_id) {
+    res.status(403).json({ error: 'This task does not belong to your vendor' }); return;
+  }
+  if (task.status === 'completed') {
+    res.status(409).json({ error: 'A completed task cannot be deleted' }); return;
+  }
+  if (task.status === 'cancelled') {
+    res.status(409).json({ error: 'Task is already cancelled' }); return;
+  }
+
+  const updated = await cancelTask(task.id);
+  res.json(updated);
 }
 
 /**
