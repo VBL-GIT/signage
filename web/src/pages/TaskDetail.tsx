@@ -11,11 +11,7 @@ import { formatDistance } from '../lib/distance';
 import { customSizeLabel } from '../lib/units';
 import { taskAge, dayLabel } from '../lib/taskAge';
 import { SIGNAGE_TYPE_LABELS } from '../types';
-
-const TYPE_LABEL: Record<string, string> = {
-  recee: 'Recee', post_recee: 'Installation (After Recee)',
-  direct: 'Direct Installation', direct_boarding: 'Installation w/o Recee',
-};
+import { taskTypeLabel } from '../lib/taskLabels';
 
 export function TaskDetail() {
   const { id } = useParams<{ id: string }>();
@@ -32,8 +28,7 @@ export function TaskDetail() {
   if (loading) return <Spinner />;
   if (!task) return <p>Task not found.</p>;
 
-  const label = task.task_type === 'installation' && task.installation_type
-    ? TYPE_LABEL[task.installation_type] : TYPE_LABEL[task.task_type];
+  const label = taskTypeLabel(task);
   const canApprove = has('task.approve');
   const canAssign = has('task.assign') && (
     (task.task_type === 'recee' && (task.status === 'pending' || task.status === 'recee_rejected')) ||
@@ -96,6 +91,20 @@ export function TaskDetail() {
           )}
         </Card>
       </div>
+
+      {(task.assignment_history?.length ?? 0) > 0 && (
+        <Card>
+          <h3>Assignment history</h3>
+          {task.assignment_history!.map((h) => (
+            <div key={h.id} className="meta">
+              {new Date(h.created_at).toLocaleString()} · {h.from_employee_name ? `${h.from_employee_name} → ` : ''}
+              <b>{h.to_employee_name ?? 'unassigned'}</b>
+              {h.assigned_by_name ? ` · by ${h.assigned_by_name}` : ''}
+              {h.note ? ` · ${h.note}` : ''}
+            </div>
+          ))}
+        </Card>
+      )}
 
       <Card>
         <h3>Task age</h3>
@@ -251,7 +260,7 @@ export function TaskDetail() {
         )}
         {canAssign && (
           <Button onClick={() => navigate(`/tasks/${task.id}/assign`)}>
-            {task.employee_id ? 'Reassign Employee' : 'Assign to Employee'}
+            {task.status === 'recee_rejected' ? 'Rework / Reassign' : task.employee_id ? 'Reassign Employee' : 'Assign to Employee'}
           </Button>
         )}
         {canDelete && (

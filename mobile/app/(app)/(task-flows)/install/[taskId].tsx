@@ -8,6 +8,7 @@ import { Button } from '../../../../components/ui/Button';
 import { useUpload } from '../../../../hooks/useUpload';
 import { useDraft } from '../../../../hooks/useDraft';
 import { DraftBanner } from '../../../../components/ui/DraftBanner';
+import { SaveStatus } from '../../../../components/ui/SaveStatus';
 import { fileExists } from '../../../../utils/drafts';
 import { useAuthStore } from '../../../../store/auth.store';
 import { getTask, submitInstallation, taskReached, InstallSignagePayload, PamphletPhotoPayload } from '../../../../services/tasks.api';
@@ -183,6 +184,7 @@ function InstallFlowInner({ taskId, onReset }: { taskId: string; onReset: () => 
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       <DraftBanner savedAt={draft.restoredAt} onDiscard={async () => { await draft.clear(); onReset(); }} />
       <Text style={styles.title}>Installation</Text>
+      <SaveStatus state={draft.saveState} />
       {task.store_name && <Text style={styles.sub}>{task.store_name}</Text>}
 
       {/* -------------------- Pamphlet distribution -------------------- */}

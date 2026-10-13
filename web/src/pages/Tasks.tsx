@@ -8,6 +8,8 @@ import { DownloadReportButton } from '../components/DownloadReportButton';
 import { Pager } from '../components/Pager';
 import { taskAge, dayLabel } from '../lib/taskAge';
 
+import { taskTypeLabel } from '../lib/taskLabels';
+
 const PAGE_SIZE = 20;
 
 const TYPE_LABEL: Record<string, string> = {
@@ -17,8 +19,7 @@ const TYPE_LABEL: Record<string, string> = {
   direct_boarding: 'Installation w/o Recee',
 };
 function label(t: Task) {
-  if (t.task_type === 'installation' && t.installation_type) return TYPE_LABEL[t.installation_type] ?? 'Installation';
-  return TYPE_LABEL[t.task_type] ?? t.task_type;
+  return taskTypeLabel(t);
 }
 
 type TypeGroup = 'recee' | 'boarding' | 'direct';
@@ -186,7 +187,7 @@ function JobsView({ tasks, navigate, onFilterChange }: { tasks: Task[]; navigate
   const typeTabs: { key: TypeFilter; label: string }[] = [
     { key: 'all', label: `All (${typeCounts.all})` },
     { key: 'recee', label: `Recee jobs (${typeCounts.recee})` },
-    { key: 'boarding', label: `Installation w/o Recee (${typeCounts.boarding})` },
+    { key: 'boarding', label: `Installation Without Recee (${typeCounts.boarding})` },
     { key: 'direct', label: `Direct Installation (${typeCounts.direct})` },
   ];
 
@@ -347,7 +348,7 @@ function FlatView({ tasks, navigate, onFilterChange }: { tasks: Task[]; navigate
   const typeTabs: { key: TypeFilter; label: string }[] = [
     { key: 'all', label: `All (${typeCounts.all})` },
     { key: 'recee', label: `Recee (${typeCounts.recee})` },
-    { key: 'boarding', label: `Installation w/o Recee (${typeCounts.boarding})` },
+    { key: 'boarding', label: `Installation Without Recee (${typeCounts.boarding})` },
     { key: 'direct', label: `Direct Installation (${typeCounts.direct})` },
   ];
 

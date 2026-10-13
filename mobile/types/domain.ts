@@ -174,6 +174,7 @@ export interface Task {
   target_pamphlet_count: number | null;
   pincode: string | null;
   is_field_initiated?: boolean;
+  activity_origin?: 'ASSIGNED' | 'UNASSIGNED';
   created_at: string;
   updated_at: string;
   completed_at?: string | null;

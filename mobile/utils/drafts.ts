@@ -50,8 +50,9 @@ export async function readDraft<T>(key: string): Promise<StoredDraft<T> | null> 
 // Serialised so two quick saves of the same draft can never interleave.
 let writeChain: Promise<unknown> = Promise.resolve();
 
-export function writeDraft<T>(key: string, data: T): Promise<void> {
-  if (!DRAFT_DIR) return Promise.resolve();
+/** Resolves true when the draft reached disk. */
+export function writeDraft<T>(key: string, data: T): Promise<boolean> {
+  if (!DRAFT_DIR) return Promise.resolve(true);
   const job = writeChain.then(async () => {
     try {
       await ensureDir(DRAFT_DIR);
@@ -61,8 +62,10 @@ export function writeDraft<T>(key: string, data: T): Promise<void> {
       await FileSystem.writeAsStringAsync(tmp, JSON.stringify({ data, savedAt: Date.now() } satisfies StoredDraft<T>));
       await FileSystem.deleteAsync(path, { idempotent: true });
       await FileSystem.moveAsync({ from: tmp, to: path });
+      return true;
     } catch (e) {
       console.warn('[drafts] save failed:', (e as Error)?.message);
+      return false;
     }
   });
   writeChain = job;

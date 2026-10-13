@@ -20,7 +20,7 @@ export function TaskCard({ task, onPress, hasDraft }: Props) {
     <TouchableOpacity onPress={onPress}>
       <Card style={styles.card}>
         <View style={styles.header}>
-          <Text style={styles.type}>{taskTypeLabel(task)}{task.is_field_initiated ? ' · New outlet' : ''}</Text>
+          <Text style={styles.type}>{taskTypeLabel(task)}</Text>
           <View style={styles.statusCol}>
             <StatusBadge status={task.status} />
             {hasDraft && <Text style={styles.draft}>● Draft saved</Text>}

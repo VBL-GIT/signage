@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { pool } from '../config/db';
-import { getTaskById, getTaskSteps, getSignagePlan, cancelTask } from '../services/tasks.service';
+import { recordAssignment, getAssignmentHistory, getTaskById, getTaskSteps, getSignagePlan, cancelTask } from '../services/tasks.service';
 import { AuthRequest } from '../middleware/auth';
 import { isStoreInactive } from '../services/stores.service';
 import { isHeadOffice } from '../auth/privileges';
@@ -95,7 +95,8 @@ export async function getTask(req: AuthRequest, res: Response) {
     }
   }
 
-  res.json({ ...task, steps, signage_plan, post_recee_task });
+  const assignment_history = await getAssignmentHistory(task.id);
+  res.json({ ...task, steps, signage_plan, post_recee_task, assignment_history });
 }
 
 export async function createTask(req: AuthRequest, res: Response) {
@@ -178,8 +179,9 @@ export async function createTask(req: AuthRequest, res: Response) {
 
   const { rows } = await pool.query(
     `INSERT INTO tasks (task_type, installation_type, vendor_id, store_id, employee_id, supervisor_id,
-       brand_id, artwork_id, boarding_size_id, custom_width_cm, custom_height_cm, pincode, target_pamphlet_count)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+       brand_id, artwork_id, boarding_size_id, custom_width_cm, custom_height_cm, pincode, target_pamphlet_count,
+       created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
     [task_type, isInstall ? installation_type : null, vendor_id,
      store_id || null, employee_id || null, supervisor_id || null,
      allowsBrandArtwork ? (brand_id || null) : null,
@@ -187,9 +189,10 @@ export async function createTask(req: AuthRequest, res: Response) {
      isBoarding ? (boarding_size_id || null) : null,
      isBoarding ? (custom_width_cm || null) : null,
      isBoarding ? (custom_height_cm || null) : null,
-     pincode || null, target_pamphlet_count || null]
+     pincode || null, target_pamphlet_count || null, req.user!.id]
   );
   const task = rows[0];
+  if (task.employee_id) await recordAssignment(task.id, null, task.employee_id, req.user!.id, task.status);
 
   // Seed a one-signage plan for a direct boarding install so the employee sees a
   // predetermined requirement to photograph. (Multi-signage demo plans are seeded
@@ -209,9 +212,17 @@ export async function assignTask(req: AuthRequest, res: Response) {
   // Vendor admin assigns/reassigns within their own vendor only. RJCorp admin/user
   // (head office / superuser) may assign to ANY vendor's employee — the task then
   // moves to that employee's vendor so scoping stays consistent.
-  const { employee_id } = req.body;
+  const { employee_id, confirm } = req.body as { employee_id: string; confirm?: boolean };
   const task = await getTaskById(req.params.id as string);
   if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+  if (task.status === 'completed' || task.status === 'cancelled') {
+    res.status(409).json({ error: `A ${task.status} task cannot be reassigned` }); return;
+  }
+  // A rejected recee goes back for rework. Who redoes it is the admin's explicit
+  // decision (keeping the same employee counts), never an automatic one.
+  if (task.status === 'recee_rejected' && confirm !== true) {
+    res.status(400).json({ error: 'Confirm the reassignment of a rejected recee (confirm: true)' }); return;
+  }
 
   const isHeadOffice = req.user!.role === 'rjcorp_admin' || req.user!.role === 'rjcorp_user';
   if (!isHeadOffice && task.vendor_id !== req.user!.vendor_id) {
@@ -249,6 +260,7 @@ export async function assignTask(req: AuthRequest, res: Response) {
          assignment_count = assignment_count + 1, updated_at = NOW() WHERE id = $3 RETURNING *`,
       [employee_id, newVendorId, task.id]
     );
+    await recordAssignment(task.id, task.employee_id ?? null, employee_id, req.user!.id, task.status);
     res.json(rows[0]);
     return;
   }
@@ -265,6 +277,7 @@ export async function assignTask(req: AuthRequest, res: Response) {
        assignment_count = assignment_count + 1, updated_at = NOW() WHERE id = $2 RETURNING *`,
     [employee_id, task.id]
   );
+  await recordAssignment(task.id, task.employee_id ?? null, employee_id, req.user!.id, task.status);
   res.json(rows[0]);
 }
 
@@ -341,6 +354,9 @@ export async function assignBulk(req: AuthRequest, res: Response) {
       if (task.status === 'completed') {
         results.failed.push({ task_id: id, reason: 'Task already completed' }); continue;
       }
+      if (task.status === 'recee_rejected') {
+        results.failed.push({ task_id: id, reason: 'Rejected recee — reassign it individually and confirm' }); continue;
+      }
       if (isHeadOffice) {
         // Cross-vendor allowed; retarget the task to the employee's vendor.
         const newVendorId = emp.vendor_id ?? task.vendor_id;
@@ -356,6 +372,7 @@ export async function assignBulk(req: AuthRequest, res: Response) {
           [employee_id, task.id]
         );
       }
+      await recordAssignment(task.id, task.employee_id ?? null, employee_id, req.user!.id, task.status);
       results.assigned += 1;
     } catch (e) {
       results.failed.push({ task_id: id, reason: (e as Error).message || 'Unknown error' });

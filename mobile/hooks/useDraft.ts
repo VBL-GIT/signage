@@ -24,6 +24,7 @@ const SAVE_DELAY_MS = 500;
 export function useDraft<T>(key: string | null, value: T, opts: Options<T>) {
   const [hydrated, setHydrated] = useState(false);
   const [restoredAt, setRestoredAt] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
 
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -54,7 +55,8 @@ export function useDraft<T>(key: string | null, value: T, opts: Options<T>) {
     if (!key || dead.current) return;
     const v = valueRef.current;
     if (optsRef.current.isEmpty?.(v)) return;
-    void writeDraft(key, v);
+    setSaveState('saving');
+    void writeDraft(key, v).then((ok) => setSaveState(ok ? 'saved' : 'failed'));
   }, [key]);
 
   // Debounced autosave on every change once hydrated.
@@ -78,5 +80,5 @@ export function useDraft<T>(key: string | null, value: T, opts: Options<T>) {
     if (key) await deleteDraft(key);
   }, [key]);
 
-  return { hydrated, restoredAt, clear };
+  return { hydrated, restoredAt, saveState, clear };
 }

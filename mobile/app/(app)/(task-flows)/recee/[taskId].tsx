@@ -6,6 +6,7 @@ import { Button } from '../../../../components/ui/Button';
 import { useUpload } from '../../../../hooks/useUpload';
 import { useDraft } from '../../../../hooks/useDraft';
 import { DraftBanner } from '../../../../components/ui/DraftBanner';
+import { SaveStatus } from '../../../../components/ui/SaveStatus';
 import { fileExists } from '../../../../utils/drafts';
 import { useAuthStore } from '../../../../store/auth.store';
 import { getTask, submitRecee, taskReached, ReceeSignagePayload } from '../../../../services/tasks.api';
@@ -122,6 +123,7 @@ function ReceeFlowInner({ taskId, onReset }: { taskId: string; onReset: () => vo
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
       <DraftBanner savedAt={draft.restoredAt} onDiscard={async () => { await draft.clear(); onReset(); }} />
       <Text style={styles.title}>Recee Submission</Text>
+      <SaveStatus state={draft.saveState} />
       {task?.store_name && <Text style={styles.sub}>{task.store_name}</Text>}
       {!storeCoords && <Text style={styles.warn}>Store location unknown — distance from store can't be computed.</Text>}
 

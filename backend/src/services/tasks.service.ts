@@ -16,6 +16,36 @@ export function canTransition(current: TaskStatus, next: TaskStatus): boolean {
   return validTransitions[current]?.includes(next) ?? false;
 }
 
+/**
+ * Append-only record of who held a task and who moved it. Kept separate from
+ * tasks.employee_id (which only holds the CURRENT assignee) so the original
+ * assignee and every reassignment stay reportable.
+ */
+export async function recordAssignment(
+  taskId: string, fromEmployeeId: string | null, toEmployeeId: string | null,
+  assignedBy: string | null, taskStatus: string, note?: string
+) {
+  await pool.query(
+    `INSERT INTO task_assignment_history (task_id, from_employee_id, to_employee_id, assigned_by, task_status, note)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [taskId, fromEmployeeId, toEmployeeId, assignedBy, taskStatus, note ?? null]
+  );
+}
+
+export async function getAssignmentHistory(taskId: string) {
+  const { rows } = await pool.query(
+    `SELECT h.id, h.created_at, h.task_status, h.note,
+            fe.name AS from_employee_name, te.name AS to_employee_name, ab.name AS assigned_by_name
+       FROM task_assignment_history h
+       LEFT JOIN users fe ON fe.id = h.from_employee_id
+       LEFT JOIN users te ON te.id = h.to_employee_id
+       LEFT JOIN users ab ON ab.id = h.assigned_by
+      WHERE h.task_id = $1 ORDER BY h.created_at ASC`,
+    [taskId]
+  );
+  return rows;
+}
+
 export async function getTaskById(taskId: string) {
   const { rows } = await pool.query(
     `SELECT t.*,
@@ -245,6 +275,8 @@ export async function processReceeApproval(
     // Carried onto the installation this approval creates. Both callers pass a
     // full task row, so these are already loaded.
     employee_id?: string | null; supervisor_id?: string | null;
+    // The installation inherits the recee's Assigned/Unassigned origin.
+    activity_origin?: string | null;
   },
   decision: { approval_status: 'approved' | 'rejected'; rejection_reason?: string | null; signages?: ApprovalSignageSpec[] },
   performedBy: string
@@ -282,14 +314,17 @@ export async function processReceeApproval(
     // was itself unassigned still produces an unassigned installation.
     const { rows: created } = await pool.query(
       `INSERT INTO tasks (task_type, installation_type, parent_task_id, vendor_id, store_id, brand_id, status,
-                          employee_id, supervisor_id, assigned_at)
+                          employee_id, supervisor_id, assigned_at, activity_origin)
        VALUES ('installation','post_recee',$1,$2,$3,$4,'pending',$5,$6,
-               CASE WHEN $5::uuid IS NULL THEN NULL ELSE NOW() END)
+               CASE WHEN $5::uuid IS NULL THEN NULL ELSE NOW() END, $7)
        RETURNING id`,
       [task.id, task.vendor_id, task.store_id, firstBrand,
-       task.employee_id ?? null, task.supervisor_id ?? null]
+       task.employee_id ?? null, task.supervisor_id ?? null, task.activity_origin ?? 'ASSIGNED']
     );
     const newTaskId = created[0].id;
+    if (task.employee_id) {
+      await recordAssignment(newTaskId, null, task.employee_id, performedBy, 'pending', 'inherited from the recee');
+    }
 
     let planIndex = 0;
     for (const ov of signages) {

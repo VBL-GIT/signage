@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { getUsers, getVendors, getTask, assignTask } from '../api';
 import type { User, Task, Vendor } from '../types';
@@ -24,6 +24,8 @@ export function Assign() {
   const [scope, setScope] = useState<Scope>('vendor');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<User | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const preselected = useRef(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -40,6 +42,15 @@ export function Assign() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id, isHeadOffice]);
+
+  // A rejected recee goes back for rework: the previous employee is preselected,
+  // and the admin can keep them or choose someone else — after confirming.
+  const isRework = task?.status === 'recee_rejected';
+  useEffect(() => {
+    if (preselected.current || !task || !isRework || !task.employee_id) return;
+    const prev = employees.find((e) => e.id === task.employee_id);
+    if (prev) { setSelected(prev); setQuery(prev.name); preselected.current = true; }
+  }, [task, employees, isRework]);
 
   // Base list: the task's vendor by default; all vendors when a head-office user opts in.
   const base = useMemo(() => {
@@ -59,9 +70,10 @@ export function Assign() {
 
   async function submit() {
     if (!selected) { setErr('Search and select an employee'); return; }
+    if (isRework && !confirmed) { setErr('Tick the confirmation to send this recee back for rework'); return; }
     setBusy(true); setErr(null);
     try {
-      await assignTask(id!, selected.id);
+      await assignTask(id!, selected.id, isRework ? true : undefined);
       navigate(backTo);
     } catch (e) { setErr(apiError(e)); } finally { setBusy(false); }
   }
@@ -73,10 +85,20 @@ export function Assign() {
   return (
     <div>
       <Link to={backTo} className="meta">← Task</Link>
-      <h1>Assign to Employee</h1>
+      <h1>{isRework ? 'Rework rejected recee' : 'Assign to Employee'}</h1>
       <ErrorBanner msg={err} />
 
       <Card style={{ maxWidth: 560 }}>
+        {isRework && (
+          <div style={{ marginBottom: 12 }}>
+            <div className="meta"><b>This recee was rejected.</b> The submission and rejection reason stay in the history. Choose who redoes it.</div>
+            {(() => {
+              const rej = [...(task?.steps ?? [])].reverse().find((s) => s.step_type === 'approval' && s.approval_status === 'rejected');
+              return rej?.rejection_reason ? <div className="meta">Reason: “{rej.rejection_reason}”</div> : null;
+            })()}
+            {task?.employee_name && <div className="meta">Previously assigned: <b>{task.employee_name}</b> (preselected)</div>}
+          </div>
+        )}
         {isHeadOffice && (
           <>
             <label>Employee pool</label>
@@ -130,8 +152,15 @@ export function Assign() {
           ))}
         </div>
 
-        <Button onClick={submit} disabled={busy || !selected} style={{ marginTop: 16 }}>
-          {busy ? 'Assigning…' : 'Assign'}
+        {isRework && (
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} style={{ width: 'auto' }} />
+            I confirm sending this recee back to {selected ? selected.name : 'the selected employee'} for rework
+          </label>
+        )}
+
+        <Button onClick={submit} disabled={busy || !selected || (isRework && !confirmed)} style={{ marginTop: 16 }}>
+          {busy ? 'Saving…' : isRework ? 'Confirm rework assignment' : 'Assign'}
         </Button>
       </Card>
     </div>

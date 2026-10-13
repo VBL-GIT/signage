@@ -2,9 +2,10 @@ import { Response } from 'express';
 import crypto from 'crypto';
 import { Pool, PoolClient } from 'pg';
 import { pool } from '../config/db';
-import { getTaskById, canTransition, transitionTask, getSignagePlan, processReceeApproval, getReceeSignageIndices } from '../services/tasks.service';
+import { getTaskById, canTransition, transitionTask, getSignagePlan, processReceeApproval, getReceeSignageIndices, recordAssignment } from '../services/tasks.service';
 import { TaskStatus } from '../types/domain';
 import { AuthRequest } from '../middleware/auth';
+import { validateOutletClassification, findDuplicateCandidates, type DuplicateCandidate } from '../services/outlets.service';
 import { normalizeStoreInput, upsertStore, isStoreInactive, storeConflictMessage } from '../services/stores.service';
 
 interface SignageInput {
@@ -279,7 +280,7 @@ type FieldBody = {
 };
 
 type OutletResult =
-  | { ok: true; storeId: string; created: boolean; lat: number; long: number }
+  | { ok: true; storeId: string; created: boolean; lat: number; long: number; duplicates: DuplicateCandidate[] }
   | { ok: false; status: number; body: Record<string, unknown> };
 
 /**
@@ -304,7 +305,18 @@ async function resolveFieldOutlet(
     if (isStoreInactive(st.outlet_status)) {
       return fail(409, `Store "${st.name}" is ${st.outlet_status}. Work cannot be recorded for an inactive store.`);
     }
-    return { ok: true, storeId: st.id, created: false, lat: Number(st.lat), long: Number(st.long) };
+    return { ok: true, storeId: st.id, created: false, lat: Number(st.lat), long: Number(st.long), duplicates: [] };
+  }
+
+  // SPEED vs Non-SPEED is the first business decision about a new outlet.
+  const cls = validateOutletClassification(body.outlet?.outlet_type, body.outlet?.speed_id);
+  if (!cls.ok) return fail(400, cls.error);
+  if (cls.speed_id) {
+    const { rows: same } = await client.query('SELECT id, name FROM stores WHERE lower(speed_id) = lower($1)', [cls.speed_id]);
+    if (same.length) {
+      return fail(409, `SPEED ID ${cls.speed_id} already belongs to "${same[0].name}". Select that outlet instead.`,
+        { duplicate_store_id: same[0].id });
+    }
   }
 
   // Placeholder Customer Code: unique, recognisable, replaced by head office.
@@ -332,9 +344,17 @@ async function resolveFieldOutlet(
     }
   }
 
+  // Likely duplicates are FLAGGED for head-office review, never merged or blocked.
+  const duplicates = await findDuplicateCandidates(client, {
+    name: input.name, pincode: input.pincode, lat: input.lat, long: input.long, speed_id: cls.speed_id,
+  }, vendorId);
+
   const { store } = await upsertStore(client, input, null);
-  await client.query('UPDATE stores SET is_field_added = true, added_by = $2 WHERE id = $1', [store.id, userId]);
-  return { ok: true, storeId: store.id as string, created: true, lat: input.lat, long: input.long };
+  await client.query(
+    `UPDATE stores SET is_field_added = true, added_by = $2, is_speed = $3, speed_id = $4, duplicate_candidates = $5 WHERE id = $1`,
+    [store.id, userId, cls.is_speed, cls.speed_id, duplicates.length ? JSON.stringify(duplicates) : null]
+  );
+  return { ok: true, storeId: store.id as string, created: true, lat: input.lat, long: input.long, duplicates };
 }
 
 /** A retry of a submission that already went through gets the original result back. */
@@ -390,11 +410,12 @@ export async function createFieldRecee(req: AuthRequest, res: Response) {
 
     const { rows: t } = await client.query(
       `INSERT INTO tasks (task_type, status, vendor_id, store_id, employee_id, brand_id,
-         is_field_initiated, assigned_at, assignment_count, client_request_id)
-       VALUES ('recee', 'recee_submitted', $1, $2, $3, $4, true, NOW(), 1, $5) RETURNING id`,
+         is_field_initiated, activity_origin, created_by, assigned_at, assignment_count, client_request_id)
+       VALUES ('recee', 'recee_submitted', $1, $2, $3, $4, true, 'UNASSIGNED', $3, NOW(), 1, $5) RETURNING id`,
       [vendorId, outlet.storeId, user.id, body.brand_id || null, body.client_request_id || null]
     );
     const taskId = t[0].id as string;
+    await recordAssignment(taskId, null, user.id, user.id, 'recee_submitted', 'self-initiated (unassigned recee)');
 
     const first = body.signages[0];
     const { rows: step } = await client.query(
@@ -409,7 +430,7 @@ export async function createFieldRecee(req: AuthRequest, res: Response) {
     );
 
     await client.query('COMMIT');
-    res.status(201).json({ task_id: taskId, store_id: outlet.storeId, store_created: outlet.created });
+    res.status(201).json({ task_id: taskId, store_id: outlet.storeId, store_created: outlet.created, possible_duplicates: outlet.duplicates });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => undefined);
     const msg = storeConflictMessage(e);
@@ -448,12 +469,13 @@ export async function createFieldInstall(req: AuthRequest, res: Response) {
 
     const { rows: t } = await client.query(
       `INSERT INTO tasks (task_type, installation_type, status, vendor_id, store_id, employee_id, brand_id, artwork_id,
-         is_field_initiated, assigned_at, assignment_count, completed_at, client_request_id)
-       VALUES ('installation', 'direct_boarding', 'completed', $1, $2, $3, $4, $5, true, NOW(), 1, NOW(), $6)
+         is_field_initiated, activity_origin, created_by, assigned_at, assignment_count, completed_at, client_request_id)
+       VALUES ('installation', 'direct_boarding', 'completed', $1, $2, $3, $4, $5, true, 'UNASSIGNED', $3, NOW(), 1, NOW(), $6)
        RETURNING id`,
       [vendorId, outlet.storeId, user.id, body.brand_id || null, body.artwork_id || null, body.client_request_id || null]
     );
     const taskId = t[0].id as string;
+    await recordAssignment(taskId, null, user.id, user.id, 'completed', 'self-initiated (unassigned installation)');
 
     // The plan records what was installed, so the task reads like any other
     // installation to head office, the reports and the task detail screens.
@@ -481,7 +503,7 @@ export async function createFieldInstall(req: AuthRequest, res: Response) {
     );
 
     await client.query('COMMIT');
-    res.status(201).json({ task_id: taskId, store_id: outlet.storeId, store_created: outlet.created });
+    res.status(201).json({ task_id: taskId, store_id: outlet.storeId, store_created: outlet.created, possible_duplicates: outlet.duplicates });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => undefined);
     const msg = storeConflictMessage(e);

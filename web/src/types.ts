@@ -69,6 +69,12 @@ export interface Store {
   vendor_id: string | null; vendor_name?: string | null;
   /** Added by an employee in the field; Customer Code is a placeholder (FLD-…) until head office sets the real one. */
   is_field_added?: boolean;
+  /** null = not recorded (every master-imported outlet). */
+  is_speed?: boolean | null;
+  speed_id?: string | null;
+  /** Possible duplicates flagged at capture time, for head-office review. */
+  duplicate_candidates?: { store_id: string; name: string; reasons: string[] }[] | null;
+  reference_image_url?: string | null;
 }
 
 export interface TaskStepPhoto {
@@ -102,8 +108,16 @@ export interface SignagePlanItem {
   recee_lat: number | null; recee_long: number | null;
 }
 
+export interface AssignmentEvent {
+  id: string; created_at: string; task_status: string | null; note: string | null;
+  from_employee_name: string | null; to_employee_name: string | null; assigned_by_name: string | null;
+}
+
 export interface Task {
   is_field_initiated?: boolean;
+  /** Persisted Assigned/Unassigned classification. */
+  activity_origin?: 'ASSIGNED' | 'UNASSIGNED';
+  assignment_history?: AssignmentEvent[];
   id: string; task_type: TaskType; installation_type: InstallationType | null;
   parent_task_id: string | null; status: TaskStatus;
   store_id: string | null; store_name: string | null; store_address: string | null;

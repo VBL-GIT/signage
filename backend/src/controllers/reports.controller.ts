@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 import { isHeadOffice } from '../auth/privileges';
+import { buildActivityFilter, queryActivities, countActivities, summariseActivities, toExportRow } from '../services/activityReport.service';
 
 const cmToIn = (cm: number | null) => (cm ? Math.round(cm / 2.54) : null);
 
@@ -448,4 +449,47 @@ export async function exportArtworksReport(_req: AuthRequest, res: Response) {
   }));
 
   sendWorkbook(res, report, 'Artworks', 'artworks-report');
+}
+
+// ---------------------------------------------------------------------------
+// Centralised activity report (all activity types, Assigned vs Unassigned).
+// Scope comes from the authenticated user inside buildActivityFilter, never from
+// the query string.
+
+const EXPORT_ROW_CAP = 50_000;
+
+function filterOr400(req: AuthRequest, res: Response) {
+  const built = buildActivityFilter(req.query as Record<string, unknown>, req.user!);
+  if (!built.ok) { res.status(400).json({ error: built.error }); return null; }
+  return built.filter;
+}
+
+export async function listActivityReport(req: AuthRequest, res: Response) {
+  const filter = filterOr400(req, res);
+  if (!filter) return;
+  const pageSize = Math.min(Math.max(parseInt(String(req.query.page_size ?? ''), 10) || 50, 1), 200);
+  const page = Math.max(parseInt(String(req.query.page ?? ''), 10) || 1, 1);
+  const [total, rows] = await Promise.all([
+    countActivities(filter),
+    queryActivities(filter, pageSize, (page - 1) * pageSize),
+  ]);
+  res.json({ page, page_size: pageSize, total, rows });
+}
+
+export async function activityReportSummary(req: AuthRequest, res: Response) {
+  const filter = filterOr400(req, res);
+  if (!filter) return;
+  res.json(await summariseActivities(filter));
+}
+
+export async function exportActivityReport(req: AuthRequest, res: Response) {
+  const filter = filterOr400(req, res);
+  if (!filter) return;
+  const total = await countActivities(filter);
+  if (total > EXPORT_ROW_CAP) {
+    res.status(413).json({ error: `This report has ${total} rows; narrow the filters to ${EXPORT_ROW_CAP} or fewer.` });
+    return;
+  }
+  const rows = await queryActivities(filter, null, 0);
+  sendWorkbook(res, rows.map(toExportRow), 'Activities', 'activity-report');
 }

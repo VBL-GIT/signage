@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, ActivityIndicator, ScrollView, StyleSheet, Alert, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, Image, ActivityIndicator, ScrollView, StyleSheet, Alert, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SignageCaptureList, SignageDraft, makeEmptySignage } from '../../../components/forms/SignageCaptureList';
 import { Button } from '../../../components/ui/Button';
@@ -8,6 +8,7 @@ import { Field } from '../../../components/ui/Field';
 import { useUpload } from '../../../hooks/useUpload';
 import { useDraft } from '../../../hooks/useDraft';
 import { DraftBanner } from '../../../components/ui/DraftBanner';
+import { SaveStatus } from '../../../components/ui/SaveStatus';
 import { fileExists } from '../../../utils/drafts';
 import { useAuthStore } from '../../../store/auth.store';
 import { useLocation } from '../../../hooks/useLocation';
@@ -51,6 +52,10 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const [artworks, setArtworks] = useState<ArtworkOption[]>([]);
   const [artworkId, setArtworkId] = useState<string | null>(null);
 
+  const [outletType, setOutletType] = useState<'speed' | 'non_speed' | null>(null);
+  const [speedId, setSpeedId] = useState('');
+  const [search, setSearch] = useState('');
+  const [found, setFound] = useState<NearbyStore[]>([]);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [pincode, setPincode] = useState('');
@@ -63,12 +68,13 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const [notes, setNotes] = useState('');
   const [signages, setSignages] = useState<SignageDraft[]>([makeEmptySignage()]);
   const [submitting, setSubmitting] = useState(false);
+  const [forceNew, setForceNew] = useState(false);
   // Same id for every retry of this submission; the server uses it to ignore a
   // repeat whose first attempt actually went through.
   const [requestId] = useState(() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 10)}`);
 
   type FieldDraft = {
-    mode?: Mode; artworkId?: string | null;
+    mode?: Mode; artworkId?: string | null; outletType?: 'speed' | 'non_speed' | null; speedId?: string;
     requestId: string; coords: Coords | null; existing: NearbyStore | null; brandId: string | null;
     name: string; address: string; pincode: string; contactPerson: string; contactNo: string;
     contactEmail: string; channel: string; subChannel: string; state: string; notes: string;
@@ -77,15 +83,16 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const requestIdRef = useRef(requestId);
   const draft = useDraft<FieldDraft>(
     userId ? `${userId}_field-recee` : null,
-    { mode, artworkId, requestId: requestIdRef.current, coords, existing, brandId, name, address, pincode, contactPerson, contactNo,
+    { mode, artworkId, outletType, speedId, requestId: requestIdRef.current, coords, existing, brandId, name, address, pincode, contactPerson, contactNo,
       contactEmail, channel, subChannel, state, notes, signages },
     {
       isEmpty: (d) => !d.name && !d.address && !d.pincode && !d.existing && !d.notes && !d.contactPerson &&
-        !d.contactNo && !d.contactEmail && !d.channel && !d.subChannel && !d.state && !d.brandId && !d.artworkId && d.mode !== 'install' &&
+        !d.contactNo && !d.contactEmail && !d.channel && !d.subChannel && !d.state && !d.brandId && !d.artworkId && d.mode !== 'install' && !d.outletType && !d.speedId &&
         d.signages.every((x) => !x.uri && !x.signage_type),
       onRestore: async (d) => {
         requestIdRef.current = d.requestId || requestIdRef.current;
         setMode(d.mode ?? 'recee'); setArtworkId(d.artworkId ?? null);
+        setOutletType(d.outletType ?? null); setSpeedId(d.speedId ?? '');
         setCoords(d.coords); setExisting(d.existing); setBrandId(d.brandId);
         setName(d.name); setAddress(d.address); setPincode(d.pincode);
         setContactPerson(d.contactPerson); setContactNo(d.contactNo); setContactEmail(d.contactEmail);
@@ -130,10 +137,25 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
     return () => clearTimeout(t);
   }, [coords, name, existing]);
 
+  // Explicit outlet search: by name, address, SPEED ID or Customer Code, so outlets
+  // that share a name can be told apart before one is picked.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 3) { setFound([]); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      getNearbyStores({ lat: coords?.lat, long: coords?.long, q })
+        .then((r) => { if (live) setFound(r); }).catch(() => undefined);
+    }, 400);
+    return () => { live = false; clearTimeout(t); };
+  }, [search, coords]);
+
   const storeCoords: Coords | null = existing ? { lat: Number(existing.lat), long: Number(existing.long) } : coords;
 
   async function handleSubmit() {
     if (!existing) {
+      if (!outletType) { Alert.alert('Required', 'First choose: is this a SPEED or a Non-SPEED outlet?'); return; }
+      if (outletType === 'speed' && !speedId.trim()) { Alert.alert('Required', 'Enter the SPEED ID for this SPEED outlet'); return; }
       if (!coords) { Alert.alert('Location needed', 'Waiting for your GPS location. Make sure location is on.'); return; }
       if (!name.trim()) { Alert.alert('Required', 'Enter the outlet name'); return; }
       if (!address.trim()) { Alert.alert('Required', 'Enter the outlet address'); return; }
@@ -171,12 +193,14 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
         distance_from_first_m: i > 0 ? haversineMeters(x.coords!, firstCoords) : undefined,
       }));
       const opt = (v: string) => v.trim() || undefined;
-      const base = { brand_id: brandId ?? undefined, notes: opt(notes), signages: payload, client_request_id: requestIdRef.current };
+      const base = { brand_id: brandId ?? undefined, notes: opt(notes), signages: payload, client_request_id: requestIdRef.current, allow_duplicate: forceNew || undefined };
       const body = existing
         ? { ...base, store_id: existing.id }
         : {
             ...base,
             outlet: {
+              outlet_type: outletType!,
+              speed_id: outletType === 'speed' ? speedId.trim() : undefined,
               name: name.trim(), address: address.trim(), pincode: pincode.trim(),
               lat: coords!.lat, long: coords!.long,
               contact_person: opt(contactPerson), contact_no: opt(contactNo), contact_email: opt(contactEmail),
@@ -193,7 +217,22 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
         mode === 'install' ? 'Installation Submitted' : 'Recee Submitted',
         mode === 'install' ? 'Marked as completed.' : 'Sent for approval.', [{ text: 'OK', onPress: () => { onDone(); router.replace('/(app)/(tasks)'); } }]);
     } catch (e: unknown) {
-      Alert.alert('Submission Failed', apiError(e));
+      const data = (e as { response?: { status?: number; data?: { duplicate_store_id?: string; error?: string } } })?.response;
+      if (data?.status === 409 && data.data?.duplicate_store_id) {
+        const isSpeedClash = /SPEED ID/.test(data.data.error ?? '');
+        Alert.alert(
+          'This outlet may already exist',
+          data.data.error ?? 'A matching outlet already exists.',
+          isSpeedClash
+            ? [{ text: 'OK' }]
+            : [
+                { text: 'Review', style: 'cancel' },
+                { text: 'Create anyway', onPress: () => { setForceNew(true); Alert.alert('Tap Submit again', 'It will be created as a new outlet and flagged for review.'); } },
+              ],
+        );
+      } else {
+        Alert.alert('Submission Failed', apiError(e));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -206,6 +245,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <DraftBanner savedAt={draft.restoredAt} onDiscard={async () => { await draft.clear(); onDone(); }} />
         <TouchableOpacity onPress={() => router.replace('/(app)/(tasks)')}><Text style={styles.back}>‹ Back to tasks</Text></TouchableOpacity>
+        <SaveStatus state={draft.saveState} />
         <Text style={styles.title}>New / Unassigned Outlet</Text>
         <Text style={styles.sub}>For an outlet that wasn't assigned to you. What are you doing there?</Text>
         <View style={styles.modeRow}>
@@ -219,6 +259,28 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
             </TouchableOpacity>
           ))}
         </View>
+
+        {!existing && (
+          <>
+            <Text style={styles.label}>Search an existing outlet first</Text>
+            <TextInput style={styles.input1} value={search} onChangeText={setSearch}
+              placeholder="Name, address, SPEED ID or Customer Code" placeholderTextColor={colors.textMuted} />
+            {found.map((o) => (
+              <TouchableOpacity key={o.id} style={styles.result} onPress={() => { setExisting(o); setSearch(''); setFound([]); }}>
+                {o.reference_image_url ? <Image source={{ uri: o.reference_image_url }} style={styles.thumb} /> : null}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.storeName}>{o.name}</Text>
+                  <Text style={styles.addr} numberOfLines={2}>{o.address} · {o.pincode}</Text>
+                  <Text style={styles.addr}>
+                    {[o.speed_id ? `SPEED ${o.speed_id}` : null, o.customer_code ? `Code ${o.customer_code}` : null,
+                      o.distance_m != null ? `${formatDistance(o.distance_m)} away` : null].filter(Boolean).join(' · ') || ' '}
+                  </Text>
+                </View>
+                <Text style={styles.link}>Select</Text>
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
 
         {existing ? (
           <Card>
@@ -242,6 +304,19 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
                   </TouchableOpacity>
                 ))}
               </Card>
+            )}
+
+            <Text style={styles.label}>Is this a SPEED outlet? *</Text>
+            <View style={styles.modeRow}>
+              {([{ k: 'speed', t: 'SPEED outlet' }, { k: 'non_speed', t: 'Non-SPEED outlet' }] as const).map((o) => (
+                <TouchableOpacity key={o.k} onPress={() => setOutletType(o.k)}
+                  style={[styles.modeCard, outletType === o.k && styles.modeCardOn]}>
+                  <Text style={[styles.modeTitle, outletType === o.k && { color: colors.primary }]}>{o.t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {outletType === 'speed' && (
+              <Field label="SPEED ID *" value={speedId} onChangeText={setSpeedId} autoCapitalize="characters" />
             )}
 
             <Text style={locating || coords ? styles.gps : styles.gpsBad}>
@@ -313,6 +388,15 @@ const styles = StyleSheet.create({
   modeCardOn: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   modeTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
   modeHint: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  input1: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm + 2,
+    fontSize: 16, backgroundColor: colors.surface, color: colors.textPrimary,
+  },
+  result: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface,
+  },
+  thumb: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.background },
   back: { fontSize: 14, fontWeight: '600', color: colors.primary },
   title: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
   sub: { fontSize: 13, color: colors.textSecondary, marginTop: -8 },

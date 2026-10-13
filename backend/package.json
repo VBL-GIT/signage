@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
+    "test": "ts-node scripts/test-validation.ts && ts-node scripts/test-reporting.ts",
     "migrate": "ts-node scripts/migrate.ts",
     "seed:reference": "ts-node scripts/seed-reference.ts",
     "create-admin": "ts-node scripts/create-admin.ts",

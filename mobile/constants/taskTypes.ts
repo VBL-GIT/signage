@@ -16,14 +16,18 @@ export const TASK_TYPES = {
 export const INSTALLATION_TYPE_LABELS: Record<InstallationType, string> = {
   post_recee: 'Installation (After Recee)',
   direct: 'Direct Installation',
-  direct_boarding: 'Installation w/o Recee',
+  direct_boarding: 'Installation Without Recee',
 };
 
+/**
+ * Assigned / Unassigned is the task's persisted activity_origin: admin-created
+ * work vs. work the employee started in the field.
+ */
 export function taskTypeLabel(task: Task): string {
-  if (task.task_type === 'installation' && task.installation_type) {
-    return INSTALLATION_TYPE_LABELS[task.installation_type];
-  }
-  return TASK_TYPES[task.task_type];
+  const unassigned = task.activity_origin === 'UNASSIGNED';
+  if (task.task_type === 'recee') return unassigned ? 'Unassigned Recee' : 'Assigned Recee';
+  const base = task.installation_type ? INSTALLATION_TYPE_LABELS[task.installation_type] : TASK_TYPES.installation;
+  return unassigned ? `Unassigned ${base}` : base;
 }
 
 export type TaskType = keyof typeof TASK_TYPES;

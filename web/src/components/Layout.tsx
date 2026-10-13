@@ -61,6 +61,7 @@ export function Layout() {
         {showStores && link('/stores', 'Stores')}
         {showAssignments && link('/assignments', 'Bulk Assignment')}
         {showApprovals && link('/approvals', 'Approvals')}
+        {link('/reports', 'Activity Report')}
         {showManage && link('/manage', 'Manage')}
         {canHandlePasswords && link('/password-requests', pendingPw ? `Password requests (${pendingPw})` : 'Password requests')}
         {isRjcorp && link('/images', 'Images')}

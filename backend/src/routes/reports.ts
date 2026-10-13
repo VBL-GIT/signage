@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate, requireRole } from '../middleware/auth';
 import { requirePrivilege } from '../auth/privileges';
 import {
-  exportTasksReport, exportApprovalsReport, exportStoresReport,
+  exportTasksReport, listActivityReport, activityReportSummary, exportActivityReport, exportApprovalsReport, exportStoresReport,
   exportVendorsReport, exportEmployeesReport, exportBrandsReport, exportArtworksReport,
 } from '../controllers/reports.controller';
 
@@ -12,6 +12,10 @@ router.use(authenticate);
 router.use(requireRole('rjcorp_admin', 'rjcorp_user', 'vendor_admin', 'vendor_user'));
 
 router.get('/tasks', exportTasksReport as any);
+// Centralised activity report: list (paged), summary metrics, CSV export. One filter set.
+router.get('/activities', listActivityReport as any);
+router.get('/activities/summary', activityReportSummary as any);
+router.get('/activities/export', exportActivityReport as any);
 router.get('/approvals', exportApprovalsReport as any);
 router.get('/stores', exportStoresReport as any);
 // Gated per the same privilege each Manage tab already requires to view the list.

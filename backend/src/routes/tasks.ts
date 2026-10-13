@@ -83,11 +83,15 @@ router.post('/', requirePrivilege('task.create'), validate(z.object({
 
 router.post('/:id/assign', requirePrivilege('task.assign'), validate(z.object({
   employee_id: z.string().uuid(),
+  confirm: z.boolean().optional(),
 })), assignTask as any);
 
 router.delete('/:id', requirePrivilege('task.delete'), deleteTask as any);
 
 const fieldOutletSchema = z.object({
+  // First business decision. SPEED requires a SPEED ID (checked in the controller).
+  outlet_type: z.enum(['speed', 'non_speed']),
+  speed_id: z.string().max(50).optional(),
   name: z.string().min(1),
   address: z.string().min(1),
   pincode: z.string().min(1),

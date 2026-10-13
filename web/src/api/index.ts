@@ -34,8 +34,8 @@ export async function createTask(body: {
   const { data } = await api.post('/api/tasks', body);
   return data as Task;
 }
-export async function assignTask(taskId: string, employee_id: string) {
-  const { data } = await api.post(`/api/tasks/${taskId}/assign`, { employee_id });
+export async function assignTask(taskId: string, employee_id: string, confirm?: boolean) {
+  const { data } = await api.post(`/api/tasks/${taskId}/assign`, { employee_id, confirm });
   return data as Task;
 }
 export interface BulkAssignResult { assigned: number; failed: { task_id: string; reason: string }[] }
@@ -317,3 +317,43 @@ export async function setUserPassword(id: string, password?: string) {
   const { data } = await api.put(`/api/users/${id}/password`, { password: password || undefined });
   return data as { user_id: string; password: string };
 }
+
+// ---- centralised activity report
+export interface ActivityFilters {
+  date_from?: string; date_to?: string; activity_type?: string; origin?: string; vendor_id?: string;
+  employee_id?: string; outlet_type?: string; status?: string; q?: string;
+}
+export interface ActivityRow {
+  activity_id: string; activity_type: string; activity_origin: 'ASSIGNED' | 'UNASSIGNED'; status: string;
+  created_at: string | null; submitted_at: string | null; reviewed_at: string | null; completed_at: string | null;
+  outlet_id: string | null; customer_code: string | null; store_uid: string | null;
+  outlet_type: 'speed' | 'non_speed' | 'not_recorded'; speed_id: string | null;
+  outlet_name: string | null; outlet_address: string | null; new_outlet: boolean | null;
+  vendor_name: string | null; employee_name: string | null; created_by_name: string | null;
+  assigned_by_name: string | null; original_employee_name: string | null; assignments: number;
+  recee_status: string | null; installation_status: string | null;
+  approval_status: string | null; rejection_reason: string | null; submission_attempts: number;
+  brand: string | null; artwork: string | null; dimensions: string | null;
+  target_pamphlet_count: number | null; reported_pamphlets: number | null; photo_count: number;
+}
+export interface ActivitySummary {
+  totals: {
+    total: number; assigned: number; unassigned: number; pending: number; awaiting_review: number;
+    approved: number; rejected_awaiting_rework: number; completed: number; new_outlets_from_field: number;
+  };
+  by_type: { activity_type: string; activity_origin: string; n: number }[];
+  by_outlet_type: { outlet_type: string; n: number }[];
+  by_day: { day: string; activity_type: string; n: number }[];
+  by_employee: { employee_id: string | null; employee_name: string | null; assigned: number; unassigned: number }[];
+  by_vendor: { vendor_id: string | null; vendor_name: string | null; assigned: number; unassigned: number }[];
+}
+const clean = (f: ActivityFilters) => Object.fromEntries(Object.entries(f).filter(([, v]) => v)) as Record<string, string>;
+export async function getActivityReport(f: ActivityFilters, page: number, page_size = 50) {
+  const { data } = await api.get('/api/reports/activities', { params: { ...clean(f), page, page_size } });
+  return data as { page: number; page_size: number; total: number; rows: ActivityRow[] };
+}
+export async function getActivitySummary(f: ActivityFilters) {
+  const { data } = await api.get('/api/reports/activities/summary', { params: clean(f) });
+  return data as ActivitySummary;
+}
+export const downloadActivityReport = (f: ActivityFilters) => downloadReport('/api/reports/activities/export', clean(f));
