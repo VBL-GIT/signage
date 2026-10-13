@@ -37,6 +37,25 @@ export default function FieldReceeScreen() {
   return <FieldRecee key={nonce} onDone={() => setNonce((n) => n + 1)} />;
 }
 
+/** One outlet in a list: name, address, identifiers and distance, so same-name outlets can be told apart. */
+function OutletRow({ o, onPick }: { o: NearbyStore; onPick: () => void }) {
+  const ids = [o.speed_id ? `SPEED ${o.speed_id}` : null, o.customer_code ? `Code ${o.customer_code}` : null].filter(Boolean).join(' · ');
+  return (
+    <TouchableOpacity style={styles.result} onPress={onPick}>
+      {o.reference_image_url ? <Image source={{ uri: o.reference_image_url }} style={styles.thumb} /> : null}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.storeName}>{o.name}</Text>
+        <Text style={styles.addr} numberOfLines={2}>{o.address} · {o.pincode}</Text>
+        {ids ? <Text style={styles.addr}>{ids}</Text> : null}
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        {o.distance_m != null && <Text style={styles.dist}>{formatDistance(o.distance_m)}</Text>}
+        <Text style={styles.link}>Select</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 function FieldRecee({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const userId = useAuthStore((s) => s.user?.id);
@@ -45,7 +64,9 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
 
   const [coords, setCoords] = useState<Coords | null>(null);
   const [existing, setExisting] = useState<NearbyStore | null>(null);
-  const [nearby, setNearby] = useState<NearbyStore[]>([]);
+  const [nearby, setNearby] = useState<NearbyStore[]>([]);      // similar names (typed name)
+  const [near, setNear] = useState<NearbyStore[] | null>(null);   // outlets within 150 m of the employee
+  const [nearTick, setNearTick] = useState(0);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brandId, setBrandId] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('recee');
@@ -124,10 +145,24 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.hydrated]);
 
-  // Duplicate guard: outlets within ~150 m of here, or matching the typed name.
+  // Outlets within 150 m of where the employee is standing, nearest first — the
+  // first thing to check before adding a "new" outlet that may already exist.
+  useEffect(() => {
+    if (existing || !coords) { return; }
+    let live = true;
+    setNear(null);
+    getNearbyStores({ lat: coords.lat, long: coords.long })
+      .then((r) => { if (live) setNear(r); })
+      .catch(() => { if (live) setNear([]); });
+    return () => { live = false; };
+  }, [coords, existing, nearTick]);
+
+  // Similar names: outlets matching the typed name (any distance), for outlets
+  // that are not close enough to appear in the list above.
   const lookupSeq = useRef(0);
   useEffect(() => {
     if (existing) return;
+    if (name.trim().length < 3) { setNearby([]); return; }
     const seq = ++lookupSeq.current;
     const t = setTimeout(() => {
       getNearbyStores({ lat: coords?.lat, long: coords?.long, q: name.trim() })
@@ -266,18 +301,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
             <TextInput style={styles.input1} value={search} onChangeText={setSearch}
               placeholder="Name, address, SPEED ID or Customer Code" placeholderTextColor={colors.textMuted} />
             {found.map((o) => (
-              <TouchableOpacity key={o.id} style={styles.result} onPress={() => { setExisting(o); setSearch(''); setFound([]); }}>
-                {o.reference_image_url ? <Image source={{ uri: o.reference_image_url }} style={styles.thumb} /> : null}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.storeName}>{o.name}</Text>
-                  <Text style={styles.addr} numberOfLines={2}>{o.address} · {o.pincode}</Text>
-                  <Text style={styles.addr}>
-                    {[o.speed_id ? `SPEED ${o.speed_id}` : null, o.customer_code ? `Code ${o.customer_code}` : null,
-                      o.distance_m != null ? `${formatDistance(o.distance_m)} away` : null].filter(Boolean).join(' · ') || ' '}
-                  </Text>
-                </View>
-                <Text style={styles.link}>Select</Text>
-              </TouchableOpacity>
+              <OutletRow key={o.id} o={o} onPick={() => { setExisting(o); setSearch(''); setFound([]); }} />
             ))}
           </>
         )}
@@ -291,17 +315,32 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
           </Card>
         ) : (
           <>
-            {nearby.length > 0 && (
+            <Card style={styles.nearCard}>
+              <View style={styles.nearHead}>
+                <Text style={styles.warnTitle}>Outlets within 150 m of you</Text>
+                <TouchableOpacity onPress={() => { void capture().then((c) => { if (c) setCoords(c); setNearTick((n) => n + 1); }); }}>
+                  <Text style={styles.link}>Refresh</Text>
+                </TouchableOpacity>
+              </View>
+              {!coords ? (
+                <Text style={styles.addr}>{locating ? 'Getting your location…' : 'Turn on location to see outlets near you.'}</Text>
+              ) : near === null ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : near.length === 0 ? (
+                <Text style={styles.addr}>No existing outlet within 150 m. You can add this one as new below.</Text>
+              ) : (
+                <>
+                  <Text style={styles.addr}>{near.length} found, nearest first. If yours is listed, select it instead of adding a duplicate.</Text>
+                  {near.map((o) => <OutletRow key={o.id} o={o} onPick={() => setExisting(o)} />)}
+                </>
+              )}
+            </Card>
+
+            {nearby.filter((o) => !(near ?? []).some((n) => n.id === o.id)).length > 0 && (
               <Card style={styles.warnCard}>
-                <Text style={styles.warnTitle}>Is it one of these existing outlets?</Text>
-                {nearby.map((s) => (
-                  <TouchableOpacity key={s.id} style={styles.match} onPress={() => setExisting(s)}>
-                    <Text style={styles.storeName}>{s.name}</Text>
-                    <Text style={styles.addr} numberOfLines={1}>
-                      {s.address}{s.distance_m != null ? ` · ${formatDistance(s.distance_m)} away` : ''}
-                    </Text>
-                    <Text style={styles.link}>Use this outlet</Text>
-                  </TouchableOpacity>
+                <Text style={styles.warnTitle}>Outlets with a similar name</Text>
+                {nearby.filter((o) => !(near ?? []).some((n) => n.id === o.id)).map((o) => (
+                  <OutletRow key={o.id} o={o} onPick={() => setExisting(o)} />
                 ))}
               </Card>
             )}
@@ -396,6 +435,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm,
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface,
   },
+  nearCard: { gap: spacing.sm },
+  nearHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dist: { fontSize: 14, fontWeight: '800', color: colors.success },
   thumb: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.background },
   back: { fontSize: 14, fontWeight: '600', color: colors.primary },
   title: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },

@@ -65,6 +65,18 @@ export function ActivityReport() {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const t = summary?.totals;
   const byEmployeeTop = useMemo(() => (summary?.by_employee ?? []).slice(0, 15), [summary]);
+  const maxEmp = Math.max(1, ...byEmployeeTop.map((r) => r.assigned + r.unassigned));
+  // Activity-type rows with Assigned/Unassigned folded together.
+  const typeRows = useMemo(() => {
+    const m = new Map<string, { type: string; a: number; u: number }>();
+    for (const r of summary?.by_type ?? []) {
+      const row = m.get(r.activity_type) ?? { type: r.activity_type, a: 0, u: 0 };
+      if (r.activity_origin === 'UNASSIGNED') row.u += r.n; else row.a += r.n;
+      m.set(r.activity_type, row);
+    }
+    return [...m.values()];
+  }, [summary]);
+  const maxType = Math.max(1, ...typeRows.map((r) => r.a + r.u));
 
   return (
     <div>
@@ -119,14 +131,14 @@ export function ActivityReport() {
       </Card>
 
       {t && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
+        <div className="stat-grid">
           {([
-            ['Total activities', t.total], ['Assigned', t.assigned], ['Unassigned', t.unassigned],
-            ['Pending', t.pending], ['Awaiting review', t.awaiting_review], ['Approved', t.approved],
-            ['Rejected – awaiting rework', t.rejected_awaiting_rework], ['Completed', t.completed],
-            ['New outlets from field', t.new_outlets_from_field],
-          ] as [string, number][]).map(([label, n]) => (
-            <Card key={label}><div className="meta">{label}</div><div style={{ fontSize: 24, fontWeight: 800 }}>{n}</div></Card>
+            ['Total activities', t.total, true], ['Assigned', t.assigned, false], ['Unassigned', t.unassigned, true],
+            ['Pending', t.pending, false], ['Awaiting review', t.awaiting_review, false], ['Approved', t.approved, false],
+            ['Rejected – rework', t.rejected_awaiting_rework, false], ['Completed', t.completed, false],
+            ['New outlets from field', t.new_outlets_from_field, false],
+          ] as [string, number, boolean][]).map(([label, n, hl]) => (
+            <div key={label} className={`stat ${hl ? 'hl' : ''}`}><div className="n">{n}</div><div className="l">{label}</div></div>
           ))}
         </div>
       )}
@@ -135,29 +147,47 @@ export function ActivityReport() {
         <div className="grid2" style={{ marginBottom: 14 }}>
           <Card>
             <h3>By activity type</h3>
-            {summary.by_type.length === 0 && <div className="muted">No data</div>}
-            {summary.by_type.map((r) => (
-              <div key={r.activity_type + r.activity_origin} className="meta">
-                {TYPE_LABEL[r.activity_type] ?? r.activity_type} · {r.activity_origin === 'UNASSIGNED' ? 'Unassigned' : 'Assigned'}: <b>{r.n}</b>
+            {typeRows.length === 0 && <div className="muted">No data</div>}
+            {typeRows.map((r) => (
+              <div key={r.type} className="bar-row">
+                <span>{TYPE_LABEL[r.type] ?? r.type}</span>
+                <span className="meta"><b>{r.a + r.u}</b> · {r.a} assigned · {r.u} unassigned</span>
+                <div className="bar-track">
+                  <div className="bar-a" style={{ width: `${(r.a / maxType) * 100}%` }} />
+                  <div className="bar-u" style={{ width: `${(r.u / maxType) * 100}%` }} />
+                </div>
               </div>
             ))}
-            <h3 style={{ marginTop: 12 }}>SPEED vs Non-SPEED</h3>
-            {summary.by_outlet_type.map((r) => <div key={r.outlet_type} className="meta">{OUTLET_LABEL[r.outlet_type]}: <b>{r.n}</b></div>)}
+            <h3 style={{ marginTop: 14 }}>SPEED vs Non-SPEED</h3>
+            <div className="chips">
+              {summary.by_outlet_type.map((r) => <span key={r.outlet_type} className="badge nonspeed">{OUTLET_LABEL[r.outlet_type]}: {r.n}</span>)}
+            </div>
           </Card>
           <Card>
-            <h3>Assigned vs Unassigned by employee</h3>
+            <h3>Assigned vs Unassigned — by employee</h3>
             {byEmployeeTop.length === 0 && <div className="muted">No data</div>}
             {byEmployeeTop.map((r) => (
-              <div key={r.employee_id ?? 'none'} className="meta">{r.employee_name ?? 'No employee'}: {r.assigned} assigned · {r.unassigned} unassigned</div>
+              <div key={r.employee_id ?? 'none'} className="bar-row">
+                <span>{r.employee_name ?? 'No employee'}</span>
+                <span className="meta">{r.assigned} assigned · {r.unassigned} unassigned</span>
+                <div className="bar-track">
+                  <div className="bar-a" style={{ width: `${(r.assigned / maxEmp) * 100}%` }} />
+                  <div className="bar-u" style={{ width: `${(r.unassigned / maxEmp) * 100}%` }} />
+                </div>
+              </div>
             ))}
             {isHeadOffice && (
               <>
-                <h3 style={{ marginTop: 12 }}>By vendor</h3>
+                <h3 style={{ marginTop: 14 }}>By vendor</h3>
                 {summary.by_vendor.map((r) => (
-                  <div key={r.vendor_id ?? 'none'} className="meta">{r.vendor_name ?? 'No vendor'}: {r.assigned} assigned · {r.unassigned} unassigned</div>
+                  <div key={r.vendor_id ?? 'none'} className="bar-row">
+                    <span>{r.vendor_name ?? 'No vendor'}</span>
+                    <span className="meta">{r.assigned} assigned · {r.unassigned} unassigned</span>
+                  </div>
                 ))}
               </>
             )}
+            <div className="meta" style={{ marginTop: 8 }}><span style={{ color: 'var(--brand)' }}>■</span> Assigned &nbsp; <span style={{ color: 'var(--accent)' }}>■</span> Unassigned</div>
           </Card>
         </div>
       )}
@@ -165,36 +195,70 @@ export function ActivityReport() {
       {!rows ? <Spinner /> : rows.length === 0 ? (
         <Card><div className="muted">No activities match these filters.</div></Card>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table" style={{ minWidth: 1500 }}>
-            <thead>
-              <tr>
-                <th>Activity</th><th>Type</th><th>Origin</th><th>Status</th><th>Created</th><th>Submitted</th><th>Reviewed</th><th>Completed</th>
-                <th>Outlet</th><th>Outlet type / SPEED ID</th><th>Customer Code</th><th>Vendor</th><th>Employee</th>
-                <th>Original employee</th><th>Reassigned</th><th>Attempts</th><th>Rejection reason</th><th>Brand / Artwork</th><th>Dimensions</th><th>Pamphlets</th><th>Photos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.activity_id}>
-                  <td><Link to={`/tasks/${r.activity_id}`}>{r.activity_id.slice(0, 8)}</Link></td>
-                  <td>{r.activity_type === 'recee' ? (r.activity_origin === 'UNASSIGNED' ? 'Unassigned Recee' : 'Assigned Recee') : TYPE_LABEL[r.activity_type]}</td>
-                  <td>{r.activity_origin === 'UNASSIGNED' ? 'Unassigned' : 'Assigned'}</td>
-                  <td>{STATUS_LABEL[r.status] ?? r.status}</td>
-                  <td>{dash(r.created_at)}</td><td>{dash(r.submitted_at)}</td><td>{dash(r.reviewed_at)}</td><td>{dash(r.completed_at)}</td>
-                  <td><div>{dash(r.outlet_name)}{r.new_outlet ? ' (new)' : ''}</div><div className="meta">{dash(r.outlet_address)}</div></td>
-                  <td>{OUTLET_LABEL[r.outlet_type]}{r.speed_id ? ` · ${r.speed_id}` : ''}</td>
-                  <td>{dash(r.customer_code)}</td><td>{dash(r.vendor_name)}</td><td>{dash(r.employee_name)}</td>
-                  <td>{dash(r.original_employee_name)}</td><td>{Math.max(0, r.assignments - 1)}</td><td>{r.submission_attempts}</td>
-                  <td>{dash(r.rejection_reason)}</td>
-                  <td>{[r.brand, r.artwork].filter(Boolean).join(' / ') || '—'}</td><td>{dash(r.dimensions)}</td>
-                  <td>{r.target_pamphlet_count != null || r.reported_pamphlets != null ? `${dash(r.reported_pamphlets)} / ${dash(r.target_pamphlet_count)}` : '—'}</td>
-                  <td>{r.photo_count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <h3 style={{ margin: '6px 0 10px' }}>Activities <span className="muted" style={{ fontWeight: 500 }}>({total})</span></h3>
+          {rows.map((r) => {
+            const unassigned = r.activity_origin === 'UNASSIGNED';
+            const title = r.activity_type === 'recee' ? (unassigned ? 'Unassigned Recee' : 'Assigned Recee') : TYPE_LABEL[r.activity_type];
+            const reassigned = Math.max(0, r.assignments - 1);
+            const stages: [string, string | null][] = [
+              ['Created', r.created_at], ['Submitted', r.submitted_at], ['Reviewed', r.reviewed_at], ['Completed', r.completed_at],
+            ];
+            return (
+              <div key={r.activity_id} className="act">
+                <div className="act-head">
+                  <span className="title">{title}</span>
+                  <span className={`badge origin-${unassigned ? 'u' : 'a'}`}>{unassigned ? 'Unassigned' : 'Assigned'}</span>
+                  <span className={`badge ${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
+                  {r.outlet_type !== 'not_recorded' && (
+                    <span className={`badge ${r.outlet_type === 'speed' ? 'speed' : 'nonspeed'}`}>{OUTLET_LABEL[r.outlet_type]}</span>
+                  )}
+                  {r.new_outlet && <span className="badge new">New outlet</span>}
+                  <Link to={`/tasks/${r.activity_id}`} className="id">#{r.activity_id.slice(0, 8)} →</Link>
+                </div>
+
+                <div className="act-body">
+                  <div className="act-sec">
+                    <h4>Outlet</h4>
+                    <div className="v">{dash(r.outlet_name)}</div>
+                    <div className="s">{dash(r.outlet_address)}</div>
+                    <div className="s">
+                      {[r.speed_id ? `SPEED ID ${r.speed_id}` : null, r.customer_code ? `Customer Code ${r.customer_code}` : null]
+                        .filter(Boolean).join(' · ') || 'No SPEED ID / Customer Code'}
+                    </div>
+                  </div>
+                  <div className="act-sec">
+                    <h4>People</h4>
+                    <div className="v">{dash(r.employee_name)}</div>
+                    <div className="s">Vendor: {dash(r.vendor_name)}</div>
+                    <div className="s">
+                      {reassigned > 0
+                        ? `Reassigned ${reassigned}× · originally ${dash(r.original_employee_name)}`
+                        : 'Not reassigned'}
+                    </div>
+                  </div>
+                  <div className="act-sec">
+                    <h4>Work</h4>
+                    <div className="v">{[r.brand, r.artwork].filter(Boolean).join(' · ') || '—'}</div>
+                    <div className="s">Size: {dash(r.dimensions)}</div>
+                    {(r.target_pamphlet_count != null || r.reported_pamphlets != null) && (
+                      <div className="s">Pamphlets: {dash(r.reported_pamphlets)} of {dash(r.target_pamphlet_count)}</div>
+                    )}
+                    <div className="s">{r.photo_count} photo{r.photo_count === 1 ? '' : 's'} · {r.submission_attempts} submission{r.submission_attempts === 1 ? '' : 's'}</div>
+                  </div>
+                </div>
+
+                {r.rejection_reason && <div className="reject"><b>Rejected:</b> {r.rejection_reason}</div>}
+
+                <div className="steps">
+                  {stages.map(([label, when]) => (
+                    <div key={label} className={when ? '' : 'off'}>{label}<b>{when ?? '—'}</b></div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </>
       )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
