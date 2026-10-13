@@ -110,7 +110,7 @@ export default function TasksScreen() {
         ))}
       </View>
       <TouchableOpacity style={styles.newBtn} onPress={() => router.push('/(app)/(task-flows)/field-recee')}>
-        <Text style={styles.newBtnText}>{hasFieldDraft ? '● Resume draft — new outlet recee' : '+ Recee a new / unassigned outlet'}</Text>
+        <Text style={styles.newBtnText}>{hasFieldDraft ? '● Resume draft — new outlet' : '+ New / unassigned outlet (recee or install)'}</Text>
       </TouchableOpacity>
       <TextInput
         style={styles.search}

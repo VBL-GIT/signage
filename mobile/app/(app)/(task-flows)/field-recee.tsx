@@ -11,15 +11,21 @@ import { DraftBanner } from '../../../components/ui/DraftBanner';
 import { fileExists } from '../../../utils/drafts';
 import { useAuthStore } from '../../../store/auth.store';
 import { useLocation } from '../../../hooks/useLocation';
-import { submitFieldRecee, ReceeSignagePayload } from '../../../services/tasks.api';
+import { submitFieldRecee, submitFieldInstall, ReceeSignagePayload } from '../../../services/tasks.api';
 import { getNearbyStores, NearbyStore } from '../../../services/stores.api';
-import { getBrands } from '../../../services/reference.api';
+import { getBrands, getArtworks, ArtworkOption } from '../../../services/reference.api';
 import { apiError } from '../../../services/api';
 import { Brand } from '../../../types/domain';
 import { Coords, haversineMeters, formatDistance } from '../../../utils/distance';
 import { colors, spacing, radius } from '../../../constants/theme';
 
+type Mode = 'recee' | 'install';
+
 /**
+ * Work at an outlet that nobody assigned, in one of two ways:
+ *  - 'recee'   — recee it; goes to the normal approval queue.
+ *  - 'install' — install directly with no recee; completes immediately.
+ *
  * Direct recee of an outlet that nobody assigned. Either records a NEW outlet
  * (details + current GPS) or, when the nearby check finds it already exists,
  * recees that store instead. Submits straight into the normal approval queue.
@@ -41,6 +47,9 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const [nearby, setNearby] = useState<NearbyStore[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brandId, setBrandId] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>('recee');
+  const [artworks, setArtworks] = useState<ArtworkOption[]>([]);
+  const [artworkId, setArtworkId] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -59,6 +68,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const [requestId] = useState(() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 10)}`);
 
   type FieldDraft = {
+    mode?: Mode; artworkId?: string | null;
     requestId: string; coords: Coords | null; existing: NearbyStore | null; brandId: string | null;
     name: string; address: string; pincode: string; contactPerson: string; contactNo: string;
     contactEmail: string; channel: string; subChannel: string; state: string; notes: string;
@@ -67,14 +77,15 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const requestIdRef = useRef(requestId);
   const draft = useDraft<FieldDraft>(
     userId ? `${userId}_field-recee` : null,
-    { requestId: requestIdRef.current, coords, existing, brandId, name, address, pincode, contactPerson, contactNo,
+    { mode, artworkId, requestId: requestIdRef.current, coords, existing, brandId, name, address, pincode, contactPerson, contactNo,
       contactEmail, channel, subChannel, state, notes, signages },
     {
       isEmpty: (d) => !d.name && !d.address && !d.pincode && !d.existing && !d.notes && !d.contactPerson &&
-        !d.contactNo && !d.contactEmail && !d.channel && !d.subChannel && !d.state && !d.brandId &&
+        !d.contactNo && !d.contactEmail && !d.channel && !d.subChannel && !d.state && !d.brandId && !d.artworkId && d.mode !== 'install' &&
         d.signages.every((x) => !x.uri && !x.signage_type),
       onRestore: async (d) => {
         requestIdRef.current = d.requestId || requestIdRef.current;
+        setMode(d.mode ?? 'recee'); setArtworkId(d.artworkId ?? null);
         setCoords(d.coords); setExisting(d.existing); setBrandId(d.brandId);
         setName(d.name); setAddress(d.address); setPincode(d.pincode);
         setContactPerson(d.contactPerson); setContactNo(d.contactNo); setContactEmail(d.contactEmail);
@@ -89,6 +100,14 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     getBrands().then(setBrands).catch(() => undefined);
   }, []);
+
+  // Artworks belong to a brand: reload them whenever the brand changes.
+  useEffect(() => {
+    if (!brandId) { setArtworks([]); return; }
+    let live = true;
+    getArtworks(brandId).then((a) => { if (live) setArtworks(a); }).catch(() => { if (live) setArtworks([]); });
+    return () => { live = false; };
+  }, [brandId]);
 
   // Capture the outlet's location once the draft has been looked at — a restored
   // draft keeps the position it was started at.
@@ -120,6 +139,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
       if (!address.trim()) { Alert.alert('Required', 'Enter the outlet address'); return; }
       if (!pincode.trim()) { Alert.alert('Required', 'Enter the pincode'); return; }
     }
+    if (mode === 'install' && !brandId) { Alert.alert('Required', 'Select the brand that was installed'); return; }
     for (let i = 0; i < signages.length; i++) {
       const s = signages[i];
       if (!s.uri || !s.coords) { Alert.alert('Required', `Capture a photo for Signage ${i + 1}`); return; }
@@ -163,9 +183,15 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
               CHANNEL: opt(channel), SUB_CHANNEL: opt(subChannel), STATE_CD: opt(state),
             },
           };
-      await submitFieldRecee(body);
+      if (mode === 'install') {
+        await submitFieldInstall({ ...body, brand_id: brandId!, artwork_id: artworkId ?? undefined });
+      } else {
+        await submitFieldRecee(body);
+      }
       await draft.clear();
-      Alert.alert('Recee Submitted', 'Sent for approval.', [{ text: 'OK', onPress: () => { onDone(); router.replace('/(app)/(tasks)'); } }]);
+      Alert.alert(
+        mode === 'install' ? 'Installation Submitted' : 'Recee Submitted',
+        mode === 'install' ? 'Marked as completed.' : 'Sent for approval.', [{ text: 'OK', onPress: () => { onDone(); router.replace('/(app)/(tasks)'); } }]);
     } catch (e: unknown) {
       Alert.alert('Submission Failed', apiError(e));
     } finally {
@@ -180,8 +206,19 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <DraftBanner savedAt={draft.restoredAt} onDiscard={async () => { await draft.clear(); onDone(); }} />
         <TouchableOpacity onPress={() => router.replace('/(app)/(tasks)')}><Text style={styles.back}>‹ Back to tasks</Text></TouchableOpacity>
-        <Text style={styles.title}>Recee a New Outlet</Text>
-        <Text style={styles.sub}>For an outlet that wasn't assigned to you.</Text>
+        <Text style={styles.title}>New / Unassigned Outlet</Text>
+        <Text style={styles.sub}>For an outlet that wasn't assigned to you. What are you doing there?</Text>
+        <View style={styles.modeRow}>
+          {([
+            { key: 'recee', title: 'With recee', hint: 'Survey it now; goes for approval' },
+            { key: 'install', title: 'Without recee', hint: 'Install directly; completes now' },
+          ] as const).map((m) => (
+            <TouchableOpacity key={m.key} onPress={() => setMode(m.key)} style={[styles.modeCard, mode === m.key && styles.modeCardOn]}>
+              <Text style={[styles.modeTitle, mode === m.key && { color: colors.primary }]}>{m.title}</Text>
+              <Text style={styles.modeHint}>{m.hint}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         {existing ? (
           <Card>
@@ -222,23 +259,46 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
           </>
         )}
 
-        <Text style={styles.label}>Brand</Text>
+        <Text style={styles.label}>{mode === 'install' ? 'Brand *' : 'Brand'}</Text>
         <View style={styles.chips}>
           {brands.map((b) => (
-            <TouchableOpacity key={b.id} onPress={() => setBrandId(brandId === b.id ? null : b.id)}
+            <TouchableOpacity key={b.id} onPress={() => { setBrandId(brandId === b.id ? null : b.id); setArtworkId(null); }}
               style={[styles.chip, brandId === b.id && styles.chipOn]}>
               <Text style={[styles.chipText, brandId === b.id && { color: colors.primary }]}>{b.name}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        <SignageCaptureList storeCoords={storeCoords} value={signages} onChange={setSignages} />
+        {mode === 'install' && brandId && (
+          <>
+            <Text style={styles.label}>Artwork</Text>
+            {artworks.length === 0 ? (
+              <Text style={styles.addr}>No artworks for this brand.</Text>
+            ) : (
+              <View style={styles.chips}>
+                {artworks.map((a) => (
+                  <TouchableOpacity key={a.id} onPress={() => setArtworkId(artworkId === a.id ? null : a.id)}
+                    style={[styles.chip, artworkId === a.id && styles.chipOn]}>
+                    <Text style={[styles.chipText, artworkId === a.id && { color: colors.primary }]}>{a.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+
+        <SignageCaptureList
+          storeCoords={storeCoords}
+          value={signages}
+          onChange={setSignages}
+          countLabel={mode === 'install' ? 'How many signages did you install? (max 5)' : undefined}
+        />
 
         <Text style={styles.label}>Notes (optional)</Text>
         <TextInput style={styles.input} value={notes} onChangeText={setNotes} multiline
           placeholder="Any notes about the recee..." placeholderTextColor={colors.textMuted} />
 
-        <Button title={submitting || uploading ? 'Submitting…' : 'Submit Recee'} onPress={handleSubmit}
+        <Button title={submitting || uploading ? 'Submitting…' : mode === 'install' ? 'Submit Installation' : 'Submit Recee'} onPress={handleSubmit}
           loading={submitting || uploading} style={styles.btn} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -248,6 +308,11 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   container: { padding: spacing.md, gap: spacing.md, paddingTop: spacing.xl },
+  modeRow: { flexDirection: 'row', gap: spacing.sm },
+  modeCard: { flex: 1, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  modeCardOn: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  modeTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  modeHint: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   back: { fontSize: 14, fontWeight: '600', color: colors.primary },
   title: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
   sub: { fontSize: 13, color: colors.textSecondary, marginTop: -8 },

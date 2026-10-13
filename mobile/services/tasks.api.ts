@@ -71,6 +71,25 @@ export async function submitFieldRecee(body: {
   return data;
 }
 
+/**
+ * Installation of an outlet nobody assigned, with no recee. The employee supplies
+ * the brand/artwork and each signage's type + size along with the photos; the
+ * task is created already completed.
+ */
+export async function submitFieldInstall(body: {
+  store_id?: string;
+  outlet?: FieldOutletPayload;
+  brand_id: string;
+  artwork_id?: string;
+  allow_duplicate?: boolean;
+  client_request_id?: string;
+  notes?: string;
+  signages: ReceeSignagePayload[];
+}): Promise<{ task_id: string; store_id: string; store_created: boolean }> {
+  const { data } = await api.post('/api/tasks/field-install', body);
+  return data;
+}
+
 export interface InstallSignagePayload {
   signage_index: number;
   photo_url: string;

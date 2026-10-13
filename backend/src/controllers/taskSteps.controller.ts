@@ -267,49 +267,117 @@ export async function submitInstallation(req: AuthRequest, res: Response) {
   res.json(updated);
 }
 
+type FieldBody = {
+  store_id?: string;
+  outlet?: Record<string, unknown>;
+  brand_id?: string;
+  artwork_id?: string;
+  notes?: string;
+  signages: SignageInput[];
+  allow_duplicate?: boolean;
+  client_request_id?: string;
+};
+
+type OutletResult =
+  | { ok: true; storeId: string; created: boolean; lat: number; long: number }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
 /**
- * Direct recee of an outlet nobody assigned. The employee either names an
- * existing store (`store_id`, picked from the nearby-outlets check) or supplies
- * the details of a new one. Outlet, task, recee step and photos are written in
- * ONE transaction and the task lands straight in `recee_submitted`, so it joins
- * the normal approval queue; the employee who did it owns the task, which means
- * the follow-up installation created on approval is theirs too.
- *
- * A new outlet gets a placeholder `FLD-` Customer Code and is_field_added=true;
- * head office replaces the code on the web console (see upsertStore).
+ * The outlet half of both field workflows. Either picks an existing store
+ * (`store_id`, from the nearby-outlets check) or creates a new one flagged
+ * is_field_added with a placeholder `FLD-` Customer Code that head office later
+ * replaces (see upsertStore). Runs inside the caller's transaction.
  */
-export async function createFieldRecee(req: AuthRequest, res: Response) {
-  const user = req.user!;
-  const { store_id, outlet, brand_id, notes, signages, allow_duplicate, client_request_id } = req.body as {
-    store_id?: string;
-    outlet?: Record<string, unknown>;
-    brand_id?: string;
-    notes?: string;
-    signages: SignageInput[];
-    allow_duplicate?: boolean;
-    client_request_id?: string;
-  };
-  if (!store_id && !outlet) {
-    res.status(400).json({ error: 'Provide an existing store or the new outlet details' }); return;
+async function resolveFieldOutlet(
+  client: PoolClient, userId: string, vendorId: string | null, body: FieldBody
+): Promise<OutletResult> {
+  const fail = (status: number, error: string, extra: Record<string, unknown> = {}): OutletResult =>
+    ({ ok: false, status, body: { error, ...extra } });
+
+  if (body.store_id) {
+    const { rows } = await client.query(
+      'SELECT id, name, lat, long, vendor_id, outlet_status FROM stores WHERE id = $1', [body.store_id]
+    );
+    const st = rows[0];
+    if (!st) return fail(404, 'Store not found');
+    if (st.vendor_id && vendorId && st.vendor_id !== vendorId) return fail(403, 'This store belongs to another vendor');
+    if (isStoreInactive(st.outlet_status)) {
+      return fail(409, `Store "${st.name}" is ${st.outlet_status}. Work cannot be recorded for an inactive store.`);
+    }
+    return { ok: true, storeId: st.id, created: false, lat: Number(st.lat), long: Number(st.long) };
   }
 
-  // A retry of a submission that already went through: answer with the original
-  // result instead of creating a second outlet/task.
-  if (client_request_id) {
-    const { rows } = await pool.query(
-      'SELECT id, store_id FROM tasks WHERE client_request_id = $1 AND employee_id = $2',
-      [client_request_id, user.id]
+  // Placeholder Customer Code: unique, recognisable, replaced by head office.
+  let code = '';
+  for (let i = 0; i < 5; i++) {
+    const c = `FLD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const { rows } = await client.query('SELECT 1 FROM stores WHERE lower(customer_code) = lower($1)', [c]);
+    if (!rows.length) { code = c; break; }
+  }
+  if (!code) throw new Error('Could not generate an outlet code');
+
+  const { input, errors } = normalizeStoreInput({ ...body.outlet, customer_code: code, vendor_id: vendorId });
+  if (errors.length) return fail(400, errors[0], { details: errors });
+
+  if (!body.allow_duplicate) {
+    const { rows: dupe } = await client.query(
+      `SELECT id, name FROM stores
+        WHERE lower(name) = lower($1) AND pincode = $2
+          AND (vendor_id IS NULL OR $3::uuid IS NULL OR vendor_id = $3) LIMIT 1`,
+      [input.name, input.pincode, vendorId]
     );
-    if (rows.length) {
-      res.status(200).json({ task_id: rows[0].id, store_id: rows[0].store_id, store_created: false, duplicate_request: true });
-      return;
+    if (dupe.length) {
+      return fail(409, `An outlet named "${dupe[0].name}" already exists in pincode ${input.pincode}. Pick it from the list instead.`,
+        { duplicate_store_id: dupe[0].id });
     }
   }
 
-  if (brand_id) {
-    const { rows } = await pool.query('SELECT 1 FROM brands WHERE id = $1', [brand_id]);
-    if (!rows.length) { res.status(404).json({ error: 'Brand not found' }); return; }
+  const { store } = await upsertStore(client, input, null);
+  await client.query('UPDATE stores SET is_field_added = true, added_by = $2 WHERE id = $1', [store.id, userId]);
+  return { ok: true, storeId: store.id as string, created: true, lat: input.lat, long: input.long };
+}
+
+/** A retry of a submission that already went through gets the original result back. */
+async function findExistingFieldTask(req: AuthRequest, res: Response, requestId?: string): Promise<boolean> {
+  if (!requestId) return false;
+  const { rows } = await pool.query(
+    'SELECT id, store_id FROM tasks WHERE client_request_id = $1 AND employee_id = $2',
+    [requestId, req.user!.id]
+  );
+  if (!rows.length) return false;
+  res.status(200).json({ task_id: rows[0].id, store_id: rows[0].store_id, store_created: false, duplicate_request: true });
+  return true;
+}
+
+async function checkBrandArtwork(res: Response, brandId?: string, artworkId?: string): Promise<boolean> {
+  if (brandId) {
+    const { rows } = await pool.query('SELECT 1 FROM brands WHERE id = $1', [brandId]);
+    if (!rows.length) { res.status(404).json({ error: 'Brand not found' }); return false; }
   }
+  if (artworkId) {
+    const { rows } = await pool.query('SELECT brand_id FROM artworks WHERE id = $1', [artworkId]);
+    if (!rows.length) { res.status(404).json({ error: 'Artwork not found' }); return false; }
+    if (brandId && rows[0].brand_id !== brandId) {
+      res.status(400).json({ error: 'Selected artwork does not belong to the chosen brand' }); return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Field workflow 1 — recee of an outlet nobody assigned. Outlet, task, recee step
+ * and photos are written in ONE transaction and the task lands straight in
+ * `recee_submitted`, joining the normal approval queue; the employee owns the
+ * task, so the follow-up installation created on approval is theirs too.
+ */
+export async function createFieldRecee(req: AuthRequest, res: Response) {
+  const user = req.user!;
+  const body = req.body as FieldBody;
+  if (!body.store_id && !body.outlet) {
+    res.status(400).json({ error: 'Provide an existing store or the new outlet details' }); return;
+  }
+  if (await findExistingFieldTask(req, res, body.client_request_id)) return;
+  if (!(await checkBrandArtwork(res, body.brand_id))) return;
 
   const { rows: me } = await pool.query('SELECT vendor_id FROM users WHERE id = $1', [user.id]);
   const vendorId: string | null = me[0]?.vendor_id ?? null;
@@ -317,84 +385,103 @@ export async function createFieldRecee(req: AuthRequest, res: Response) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
-    let storeId: string;
-    let created = false;
-    let storeLat: number;
-    let storeLong: number;
-
-    if (store_id) {
-      const { rows } = await client.query(
-        'SELECT id, name, lat, long, vendor_id, outlet_status FROM stores WHERE id = $1', [store_id]
-      );
-      const st = rows[0];
-      if (!st) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Store not found' }); return; }
-      if (st.vendor_id && vendorId && st.vendor_id !== vendorId) {
-        await client.query('ROLLBACK'); res.status(403).json({ error: 'This store belongs to another vendor' }); return;
-      }
-      if (isStoreInactive(st.outlet_status)) {
-        await client.query('ROLLBACK');
-        res.status(409).json({ error: `Store "${st.name}" is ${st.outlet_status}. A recee cannot be done for an inactive store.` });
-        return;
-      }
-      storeId = st.id; storeLat = Number(st.lat); storeLong = Number(st.long);
-    } else {
-      // Placeholder Customer Code: unique, recognisable, replaced by head office.
-      let code = '';
-      for (let i = 0; i < 5; i++) {
-        const c = `FLD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-        const { rows } = await client.query('SELECT 1 FROM stores WHERE lower(customer_code) = lower($1)', [c]);
-        if (!rows.length) { code = c; break; }
-      }
-      if (!code) throw new Error('Could not generate an outlet code');
-
-      const { input, errors } = normalizeStoreInput({ ...outlet, customer_code: code, vendor_id: vendorId });
-      if (errors.length) { await client.query('ROLLBACK'); res.status(400).json({ error: errors[0], details: errors }); return; }
-
-      if (!allow_duplicate) {
-        const { rows: dupe } = await client.query(
-          `SELECT id, name FROM stores
-            WHERE lower(name) = lower($1) AND pincode = $2
-              AND (vendor_id IS NULL OR $3::uuid IS NULL OR vendor_id = $3) LIMIT 1`,
-          [input.name, input.pincode, vendorId]
-        );
-        if (dupe.length) {
-          await client.query('ROLLBACK');
-          res.status(409).json({
-            error: `An outlet named "${dupe[0].name}" already exists in pincode ${input.pincode}. Pick it from the list instead.`,
-            duplicate_store_id: dupe[0].id,
-          });
-          return;
-        }
-      }
-
-      const { store } = await upsertStore(client, input, null);
-      await client.query('UPDATE stores SET is_field_added = true, added_by = $2 WHERE id = $1', [store.id, user.id]);
-      storeId = store.id as string; storeLat = input.lat; storeLong = input.long; created = true;
-    }
+    const outlet = await resolveFieldOutlet(client, user.id, vendorId, body);
+    if (!outlet.ok) { await client.query('ROLLBACK'); res.status(outlet.status).json(outlet.body); return; }
 
     const { rows: t } = await client.query(
       `INSERT INTO tasks (task_type, status, vendor_id, store_id, employee_id, brand_id,
          is_field_initiated, assigned_at, assignment_count, client_request_id)
        VALUES ('recee', 'recee_submitted', $1, $2, $3, $4, true, NOW(), 1, $5) RETURNING id`,
-      [vendorId, storeId, user.id, brand_id || null, client_request_id || null]
+      [vendorId, outlet.storeId, user.id, body.brand_id || null, body.client_request_id || null]
     );
     const taskId = t[0].id as string;
 
-    const first = signages[0];
+    const first = body.signages[0];
     const { rows: step } = await client.query(
       `INSERT INTO task_steps (task_id, step_type, performed_by, lat, long, notes)
        VALUES ($1,'recee',$2,$3,$4,$5) RETURNING id`,
-      [taskId, user.id, first.lat, first.long, notes || null]
+      [taskId, user.id, first.lat, first.long, body.notes || null]
     );
     await insertSignages(
       step[0].id,
-      signages.map((s) => ({ ...s, brand_id: brand_id ?? s.brand_id ?? null })),
+      body.signages.map((s) => ({ ...s, brand_id: body.brand_id ?? s.brand_id ?? null })),
       client
     );
 
     await client.query('COMMIT');
-    res.status(201).json({ task_id: taskId, store_id: storeId, store_created: created, store_lat: storeLat, store_long: storeLong });
+    res.status(201).json({ task_id: taskId, store_id: outlet.storeId, store_created: outlet.created });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    const msg = storeConflictMessage(e);
+    if (msg) { res.status(409).json({ error: msg }); return; }
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Field workflow 2 — installation of an outlet nobody assigned, with no recee.
+ * Nothing was planned by an admin, so the employee supplies what a plan would
+ * have held (type, size, brand, artwork) along with the installation photos.
+ * Outlet, task (a completed 'direct_boarding' installation), its signage plan
+ * and the installation step are written in one transaction; there is no
+ * approval step, matching an assigned installation without recee.
+ */
+export async function createFieldInstall(req: AuthRequest, res: Response) {
+  const user = req.user!;
+  const body = req.body as FieldBody;
+  if (!body.store_id && !body.outlet) {
+    res.status(400).json({ error: 'Provide an existing store or the new outlet details' }); return;
+  }
+  if (await findExistingFieldTask(req, res, body.client_request_id)) return;
+  if (!(await checkBrandArtwork(res, body.brand_id, body.artwork_id))) return;
+
+  const { rows: me } = await pool.query('SELECT vendor_id FROM users WHERE id = $1', [user.id]);
+  const vendorId: string | null = me[0]?.vendor_id ?? null;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const outlet = await resolveFieldOutlet(client, user.id, vendorId, body);
+    if (!outlet.ok) { await client.query('ROLLBACK'); res.status(outlet.status).json(outlet.body); return; }
+
+    const { rows: t } = await client.query(
+      `INSERT INTO tasks (task_type, installation_type, status, vendor_id, store_id, employee_id, brand_id, artwork_id,
+         is_field_initiated, assigned_at, assignment_count, completed_at, client_request_id)
+       VALUES ('installation', 'direct_boarding', 'completed', $1, $2, $3, $4, $5, true, NOW(), 1, NOW(), $6)
+       RETURNING id`,
+      [vendorId, outlet.storeId, user.id, body.brand_id || null, body.artwork_id || null, body.client_request_id || null]
+    );
+    const taskId = t[0].id as string;
+
+    // The plan records what was installed, so the task reads like any other
+    // installation to head office, the reports and the task detail screens.
+    for (let i = 0; i < body.signages.length; i++) {
+      const s = body.signages[i];
+      await client.query(
+        `INSERT INTO task_signage_plan (task_id, signage_index, signage_type, boarding_size_id,
+           custom_width_cm, custom_height_cm, brand_id, artwork_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [taskId, i + 1, s.signage_type ?? null, s.boarding_size_id ?? null,
+         s.custom_width_cm ?? null, s.custom_height_cm ?? null, body.brand_id ?? null, body.artwork_id ?? null]
+      );
+    }
+
+    const first = body.signages[0];
+    const { rows: step } = await client.query(
+      `INSERT INTO task_steps (task_id, step_type, performed_by, lat, long, notes)
+       VALUES ($1,'installation',$2,$3,$4,$5) RETURNING id`,
+      [taskId, user.id, first.lat, first.long, body.notes || null]
+    );
+    await insertSignages(
+      step[0].id,
+      body.signages.map((s) => ({ ...s, brand_id: body.brand_id ?? null })),
+      client
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ task_id: taskId, store_id: outlet.storeId, store_created: outlet.created });
   } catch (e) {
     await client.query('ROLLBACK').catch(() => undefined);
     const msg = storeConflictMessage(e);

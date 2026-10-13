@@ -51,9 +51,11 @@ interface ReceeProps {
   value: SignageDraft[];
   onChange: (v: SignageDraft[]) => void;
   max?: number;
+  /** Wording for the count question and per-signage cards (defaults to the recee wording). */
+  countLabel?: string;
 }
 
-export function SignageCaptureList({ storeCoords, value, onChange, max = 5 }: ReceeProps) {
+export function SignageCaptureList({ storeCoords, value, onChange, max = 5, countLabel }: ReceeProps) {
   const [annotatingIndex, setAnnotatingIndex] = useState<number | null>(null);
 
   function setCount(n: number) {
@@ -76,7 +78,7 @@ export function SignageCaptureList({ storeCoords, value, onChange, max = 5 }: Re
 
   return (
     <View style={{ gap: spacing.md }}>
-      <Text style={styles.label}>How many signages can be installed? (max {max})</Text>
+      <Text style={styles.label}>{countLabel ?? `How many signages can be installed? (max ${max})`}</Text>
       <CountSelector count={value.length} max={max} onChange={setCount} />
 
       {value.map((s, i) => (

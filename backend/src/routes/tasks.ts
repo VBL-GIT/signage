@@ -6,6 +6,7 @@ import { requirePrivilege } from '../auth/privileges';
 import { listTasks, getTask, createTask, assignTask, assignBulk, deleteTask } from '../controllers/tasks.controller';
 import {
   createFieldRecee,
+  createFieldInstall,
   submitRecee,
   approveRecee,
   approveBulk,
@@ -86,29 +87,44 @@ router.post('/:id/assign', requirePrivilege('task.assign'), validate(z.object({
 
 router.delete('/:id', requirePrivilege('task.delete'), deleteTask as any);
 
-// Employee-initiated recee of an outlet nobody assigned (new or existing store).
+const fieldOutletSchema = z.object({
+  name: z.string().min(1),
+  address: z.string().min(1),
+  pincode: z.string().min(1),
+  lat: z.number(),
+  long: z.number(),
+  contact_person: z.string().optional(),
+  contact_no: z.string().optional(),
+  contact_email: z.string().optional(),
+  CHANNEL: z.string().optional(),
+  SUB_CHANNEL: z.string().optional(),
+  STATE_CD: z.string().optional(),
+});
+
+// Employee-initiated work at an outlet nobody assigned (new or existing store).
 // Registered before the '/:id/*' routes; employees only.
 router.post('/field-recee', requireRole('employee'), validate(z.object({
   store_id: z.string().uuid().optional(),
-  outlet: z.object({
-    name: z.string().min(1),
-    address: z.string().min(1),
-    pincode: z.string().min(1),
-    lat: z.number(),
-    long: z.number(),
-    contact_person: z.string().optional(),
-    contact_no: z.string().optional(),
-    contact_email: z.string().optional(),
-    CHANNEL: z.string().optional(),
-    SUB_CHANNEL: z.string().optional(),
-    STATE_CD: z.string().optional(),
-  }).optional(),
+  outlet: fieldOutletSchema.optional(),
   brand_id: z.string().uuid().optional(),
   allow_duplicate: z.boolean().optional(),
   client_request_id: z.string().min(16).max(64).optional(),
   notes: z.string().optional(),
   signages: receeSignageSchema,
 })), createFieldRecee as any);
+
+// Same, but a direct installation with no recee: the employee supplies the
+// brand/artwork and each signage's type + size, plus the installation photos.
+router.post('/field-install', requireRole('employee'), validate(z.object({
+  store_id: z.string().uuid().optional(),
+  outlet: fieldOutletSchema.optional(),
+  brand_id: z.string().uuid(),
+  artwork_id: z.string().uuid().optional(),
+  allow_duplicate: z.boolean().optional(),
+  client_request_id: z.string().min(16).max(64).optional(),
+  notes: z.string().optional(),
+  signages: receeSignageSchema,
+})), createFieldInstall as any);
 
 router.post('/:id/recee', validate(z.object({
   notes: z.string().optional(),
