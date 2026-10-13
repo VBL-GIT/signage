@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, FlatList, StyleSheet, Text, RefreshControl, ActivityIndicator, TextInput, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { getTasks } from '../../../services/tasks.api';
@@ -8,6 +8,7 @@ import { TaskCard } from '../../../components/tasks/TaskCard';
 import { ErrorState } from '../../../components/ui/ErrorState';
 import { colors, spacing, radius } from '../../../constants/theme';
 import { useAuthStore } from '../../../store/auth.store';
+import { listDraftKeys, pruneDrafts } from '../../../utils/drafts';
 
 type Tab = 'todo' | 'waiting' | 'done';
 type TypeFilter = 'all' | 'recee' | 'post_recee' | 'direct' | 'direct_boarding';
@@ -48,6 +49,22 @@ export default function TasksScreen() {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
 
+  // Which tasks have an autosaved draft on this device (and is there a new-outlet one).
+  const [draftTaskIds, setDraftTaskIds] = useState<Set<string>>(new Set());
+  const [hasFieldDraft, setHasFieldDraft] = useState(false);
+  const refreshDrafts = useCallback(async () => {
+    if (!user) return;
+    const keys = await listDraftKeys();
+    const ids = new Set<string>();
+    for (const k of keys) {
+      const m = k.startsWith(`${user.id}_`) && k.match(/_(?:recee|install)_([0-9a-fA-F-]{36})$/);
+      if (m) ids.add(m[1]);
+    }
+    setDraftTaskIds(ids);
+    setHasFieldDraft(keys.includes(`${user.id}_field-recee`.replace(/[^a-zA-Z0-9_-]/g, '_')));
+  }, [user]);
+  useEffect(() => { pruneDrafts().then(refreshDrafts); }, [refreshDrafts]);
+
   const fetchTasks = useCallback(async () => {
     if (!user) return; // Don't fetch if not authenticated — auth guard in root layout handles redirect
     setError(null);
@@ -62,7 +79,7 @@ export default function TasksScreen() {
     }
   }, [user]);
 
-  useFocusEffect(useCallback(() => { fetchTasks(); }, [fetchTasks]));
+  useFocusEffect(useCallback(() => { fetchTasks(); refreshDrafts(); }, [fetchTasks, refreshDrafts]));
 
   const filtered = useMemo(() => {
     const matchesType = (t: Task) => {
@@ -92,6 +109,9 @@ export default function TasksScreen() {
           </TouchableOpacity>
         ))}
       </View>
+      <TouchableOpacity style={styles.newBtn} onPress={() => router.push('/(app)/(task-flows)/field-recee')}>
+        <Text style={styles.newBtnText}>{hasFieldDraft ? '● Resume draft — new outlet recee' : '+ Recee a new / unassigned outlet'}</Text>
+      </TouchableOpacity>
       <TextInput
         style={styles.search}
         value={query}
@@ -121,7 +141,7 @@ export default function TasksScreen() {
           </Text>
         }
         renderItem={({ item }) => (
-          <TaskCard task={item} onPress={() => router.push(`/(app)/(tasks)/${item.id}`)} />
+          <TaskCard task={item} hasDraft={draftTaskIds.has(item.id)} onPress={() => router.push(`/(app)/(tasks)/${item.id}`)} />
         )}
       />
     </View>
@@ -141,6 +161,11 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: colors.primary },
   tabText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
   tabTextActive: { color: '#fff' },
+  newBtn: {
+    marginHorizontal: spacing.md, marginTop: spacing.sm, paddingVertical: 10, borderRadius: radius.md,
+    alignItems: 'center', backgroundColor: colors.primaryLight, borderWidth: 1, borderColor: colors.primary,
+  },
+  newBtnText: { fontSize: 14, fontWeight: '700', color: colors.primary },
   search: {
     marginHorizontal: spacing.md, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border,
     borderRadius: radius.md, padding: spacing.sm, color: colors.textPrimary, fontSize: 15, backgroundColor: colors.surface,

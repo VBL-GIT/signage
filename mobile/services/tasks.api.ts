@@ -11,6 +11,16 @@ export async function getTask(id: string): Promise<Task> {
   return data;
 }
 
+/**
+ * After a failed submit: did the server actually get it? A response lost on a weak
+ * connection looks like a failure, and re-sending would be rejected (the status
+ * already moved on), so the employee would be stuck. Treat a task that has
+ * reached one of `statuses` as submitted.
+ */
+export async function taskReached(taskId: string, statuses: string[]): Promise<boolean> {
+  try { return statuses.includes((await getTask(taskId)).status); } catch { return false; }
+}
+
 export interface ReceeSignagePayload {
   photo_url: string;
   lat: number;
@@ -29,6 +39,35 @@ export async function submitRecee(taskId: string, body: {
   signages: ReceeSignagePayload[];
 }): Promise<Task> {
   const { data } = await api.post(`/api/tasks/${taskId}/recee`, body);
+  return data;
+}
+
+export interface FieldOutletPayload {
+  name: string;
+  address: string;
+  pincode: string;
+  lat: number;
+  long: number;
+  contact_person?: string;
+  contact_no?: string;
+  contact_email?: string;
+  CHANNEL?: string;
+  SUB_CHANNEL?: string;
+  STATE_CD?: string;
+}
+
+/** Recee of an outlet nobody assigned: an existing store_id OR a new outlet. */
+export async function submitFieldRecee(body: {
+  store_id?: string;
+  outlet?: FieldOutletPayload;
+  brand_id?: string;
+  allow_duplicate?: boolean;
+  /** Same value on every retry of one submission, so a lost response never creates a second outlet/task. */
+  client_request_id?: string;
+  notes?: string;
+  signages: ReceeSignagePayload[];
+}): Promise<{ task_id: string; store_id: string; store_created: boolean }> {
+  const { data } = await api.post('/api/tasks/field-recee', body);
   return data;
 }
 

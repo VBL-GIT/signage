@@ -7,7 +7,7 @@ type Queryable = Pool | PoolClient;
 
 export const STORE_COLUMNS =
   'id, uid, customer_code, name, address, pincode, lat, long, contact_no, contact_email, ' +
-  'contact_person, outlet_status, source_metadata, vendor_id, created_at, updated_at';
+  'contact_person, outlet_status, source_metadata, vendor_id, is_field_added, created_at, updated_at';
 
 export interface StoreInput {
   customer_code: string;
@@ -296,6 +296,9 @@ export async function upsertStore(
       sets.push(`${col} = $${params.length}`);
     };
     add('customer_code', input.customer_code);
+    // A field-added outlet stays flagged until head office replaces its
+    // placeholder FLD- code with the real Customer Code.
+    sets.push(`is_field_added = (is_field_added AND $${params.length} LIKE 'FLD-%')`);
     add('uid', input.uid);
     add('name', input.name);
     add('address', input.address);

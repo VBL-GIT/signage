@@ -1,8 +1,11 @@
 import { Response } from 'express';
+import crypto from 'crypto';
+import { Pool, PoolClient } from 'pg';
 import { pool } from '../config/db';
 import { getTaskById, canTransition, transitionTask, getSignagePlan, processReceeApproval, getReceeSignageIndices } from '../services/tasks.service';
 import { TaskStatus } from '../types/domain';
 import { AuthRequest } from '../middleware/auth';
+import { normalizeStoreInput, upsertStore, isStoreInactive, storeConflictMessage } from '../services/stores.service';
 
 interface SignageInput {
   photo_url: string;
@@ -21,10 +24,10 @@ interface SignageInput {
   annotation?: string | null;
 }
 
-async function insertSignages(taskStepId: string, signages: SignageInput[]) {
+async function insertSignages(taskStepId: string, signages: SignageInput[], q: Pool | PoolClient = pool) {
   for (let i = 0; i < signages.length; i++) {
     const s = signages[i];
-    await pool.query(
+    await q.query(
       `INSERT INTO task_step_photos
         (task_step_id, photo_url, marker_x, marker_y, annotation, lat, long, signage_type,
          boarding_size_id, custom_width_cm, custom_height_cm, brand_id,
@@ -262,4 +265,142 @@ export async function submitInstallation(req: AuthRequest, res: Response) {
 
   const updated = await transitionTask(task.id, 'completed');
   res.json(updated);
+}
+
+/**
+ * Direct recee of an outlet nobody assigned. The employee either names an
+ * existing store (`store_id`, picked from the nearby-outlets check) or supplies
+ * the details of a new one. Outlet, task, recee step and photos are written in
+ * ONE transaction and the task lands straight in `recee_submitted`, so it joins
+ * the normal approval queue; the employee who did it owns the task, which means
+ * the follow-up installation created on approval is theirs too.
+ *
+ * A new outlet gets a placeholder `FLD-` Customer Code and is_field_added=true;
+ * head office replaces the code on the web console (see upsertStore).
+ */
+export async function createFieldRecee(req: AuthRequest, res: Response) {
+  const user = req.user!;
+  const { store_id, outlet, brand_id, notes, signages, allow_duplicate, client_request_id } = req.body as {
+    store_id?: string;
+    outlet?: Record<string, unknown>;
+    brand_id?: string;
+    notes?: string;
+    signages: SignageInput[];
+    allow_duplicate?: boolean;
+    client_request_id?: string;
+  };
+  if (!store_id && !outlet) {
+    res.status(400).json({ error: 'Provide an existing store or the new outlet details' }); return;
+  }
+
+  // A retry of a submission that already went through: answer with the original
+  // result instead of creating a second outlet/task.
+  if (client_request_id) {
+    const { rows } = await pool.query(
+      'SELECT id, store_id FROM tasks WHERE client_request_id = $1 AND employee_id = $2',
+      [client_request_id, user.id]
+    );
+    if (rows.length) {
+      res.status(200).json({ task_id: rows[0].id, store_id: rows[0].store_id, store_created: false, duplicate_request: true });
+      return;
+    }
+  }
+
+  if (brand_id) {
+    const { rows } = await pool.query('SELECT 1 FROM brands WHERE id = $1', [brand_id]);
+    if (!rows.length) { res.status(404).json({ error: 'Brand not found' }); return; }
+  }
+
+  const { rows: me } = await pool.query('SELECT vendor_id FROM users WHERE id = $1', [user.id]);
+  const vendorId: string | null = me[0]?.vendor_id ?? null;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    let storeId: string;
+    let created = false;
+    let storeLat: number;
+    let storeLong: number;
+
+    if (store_id) {
+      const { rows } = await client.query(
+        'SELECT id, name, lat, long, vendor_id, outlet_status FROM stores WHERE id = $1', [store_id]
+      );
+      const st = rows[0];
+      if (!st) { await client.query('ROLLBACK'); res.status(404).json({ error: 'Store not found' }); return; }
+      if (st.vendor_id && vendorId && st.vendor_id !== vendorId) {
+        await client.query('ROLLBACK'); res.status(403).json({ error: 'This store belongs to another vendor' }); return;
+      }
+      if (isStoreInactive(st.outlet_status)) {
+        await client.query('ROLLBACK');
+        res.status(409).json({ error: `Store "${st.name}" is ${st.outlet_status}. A recee cannot be done for an inactive store.` });
+        return;
+      }
+      storeId = st.id; storeLat = Number(st.lat); storeLong = Number(st.long);
+    } else {
+      // Placeholder Customer Code: unique, recognisable, replaced by head office.
+      let code = '';
+      for (let i = 0; i < 5; i++) {
+        const c = `FLD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+        const { rows } = await client.query('SELECT 1 FROM stores WHERE lower(customer_code) = lower($1)', [c]);
+        if (!rows.length) { code = c; break; }
+      }
+      if (!code) throw new Error('Could not generate an outlet code');
+
+      const { input, errors } = normalizeStoreInput({ ...outlet, customer_code: code, vendor_id: vendorId });
+      if (errors.length) { await client.query('ROLLBACK'); res.status(400).json({ error: errors[0], details: errors }); return; }
+
+      if (!allow_duplicate) {
+        const { rows: dupe } = await client.query(
+          `SELECT id, name FROM stores
+            WHERE lower(name) = lower($1) AND pincode = $2
+              AND (vendor_id IS NULL OR $3::uuid IS NULL OR vendor_id = $3) LIMIT 1`,
+          [input.name, input.pincode, vendorId]
+        );
+        if (dupe.length) {
+          await client.query('ROLLBACK');
+          res.status(409).json({
+            error: `An outlet named "${dupe[0].name}" already exists in pincode ${input.pincode}. Pick it from the list instead.`,
+            duplicate_store_id: dupe[0].id,
+          });
+          return;
+        }
+      }
+
+      const { store } = await upsertStore(client, input, null);
+      await client.query('UPDATE stores SET is_field_added = true, added_by = $2 WHERE id = $1', [store.id, user.id]);
+      storeId = store.id as string; storeLat = input.lat; storeLong = input.long; created = true;
+    }
+
+    const { rows: t } = await client.query(
+      `INSERT INTO tasks (task_type, status, vendor_id, store_id, employee_id, brand_id,
+         is_field_initiated, assigned_at, assignment_count, client_request_id)
+       VALUES ('recee', 'recee_submitted', $1, $2, $3, $4, true, NOW(), 1, $5) RETURNING id`,
+      [vendorId, storeId, user.id, brand_id || null, client_request_id || null]
+    );
+    const taskId = t[0].id as string;
+
+    const first = signages[0];
+    const { rows: step } = await client.query(
+      `INSERT INTO task_steps (task_id, step_type, performed_by, lat, long, notes)
+       VALUES ($1,'recee',$2,$3,$4,$5) RETURNING id`,
+      [taskId, user.id, first.lat, first.long, notes || null]
+    );
+    await insertSignages(
+      step[0].id,
+      signages.map((s) => ({ ...s, brand_id: brand_id ?? s.brand_id ?? null })),
+      client
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ task_id: taskId, store_id: storeId, store_created: created, store_lat: storeLat, store_long: storeLong });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    const msg = storeConflictMessage(e);
+    if (msg) { res.status(409).json({ error: msg }); return; }
+    throw e;
+  } finally {
+    client.release();
+  }
 }

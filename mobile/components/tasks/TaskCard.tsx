@@ -10,18 +10,20 @@ import { colors, spacing } from '../../constants/theme';
 interface Props {
   task: Task;
   onPress: () => void;
+  hasDraft?: boolean;
 }
 
-export function TaskCard({ task, onPress }: Props) {
+export function TaskCard({ task, onPress, hasDraft }: Props) {
   const age = taskAge(task);
   const ageLabel = age.completedInDays != null ? `completed in ${dayLabel(age.completedInDays)}` : `${dayLabel(age.ageDays)} old`;
   return (
     <TouchableOpacity onPress={onPress}>
       <Card style={styles.card}>
         <View style={styles.header}>
-          <Text style={styles.type}>{taskTypeLabel(task)}</Text>
+          <Text style={styles.type}>{taskTypeLabel(task)}{task.is_field_initiated ? ' · New outlet' : ''}</Text>
           <View style={styles.statusCol}>
             <StatusBadge status={task.status} />
+            {hasDraft && <Text style={styles.draft}>● Draft saved</Text>}
             <Text style={styles.age}>{ageLabel}</Text>
           </View>
         </View>
@@ -39,6 +41,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing.xs },
   type: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
   statusCol: { alignItems: 'flex-end', gap: 2 },
+  draft: { fontSize: 11, fontWeight: '700', color: colors.primary },
   age: { fontSize: 11, color: colors.textMuted },
   store: { fontSize: 14, color: colors.textPrimary, marginBottom: 2 },
   address: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },

@@ -6,7 +6,11 @@ import { PamphletDistribution, PamphletShot } from '../../../../components/forms
 import { AnnotatedImage } from '../../../../components/ui/AnnotatedImage';
 import { Button } from '../../../../components/ui/Button';
 import { useUpload } from '../../../../hooks/useUpload';
-import { getTask, submitInstallation, InstallSignagePayload, PamphletPhotoPayload } from '../../../../services/tasks.api';
+import { useDraft } from '../../../../hooks/useDraft';
+import { DraftBanner } from '../../../../components/ui/DraftBanner';
+import { fileExists } from '../../../../utils/drafts';
+import { useAuthStore } from '../../../../store/auth.store';
+import { getTask, submitInstallation, taskReached, InstallSignagePayload, PamphletPhotoPayload } from '../../../../services/tasks.api';
 import { apiError } from '../../../../services/api';
 import { Task, TaskStep } from '../../../../types/domain';
 import { SIGNAGE_TYPE_LABELS } from '../../../../constants/taskTypes';
@@ -20,13 +24,15 @@ export default function InstallFlow() {
   // REUSED across tasks (only the taskId param changes). Keying the inner flow by
   // taskId forces a full remount per task, so capture drafts never leak between
   // pending tasks of the same type.
+  const [resetNonce, setResetNonce] = useState(0);
   if (!taskId) return null;
-  return <InstallFlowInner key={taskId} taskId={taskId} />;
+  return <InstallFlowInner key={`${taskId}:${resetNonce}`} taskId={taskId} onReset={() => setResetNonce((n) => n + 1)} />;
 }
 
-function InstallFlowInner({ taskId }: { taskId: string }) {
+function InstallFlowInner({ taskId, onReset }: { taskId: string; onReset: () => void }) {
   const router = useRouter();
-  const { upload, uploading } = useUpload();
+  const userId = useAuthStore((s) => s.user?.id);
+  const { uploadAll, uploading } = useUpload();
 
   const [task, setTask] = useState<Task | null>(null);
   const [parentRecee, setParentRecee] = useState<TaskStep | null>(null);
@@ -62,9 +68,34 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
     })();
   }, [taskId, reloadKey]);
 
+  // Autosaved draft — e.g. 3 of 5 signage photos taken, then the app is killed:
+  // reopening continues from signage 4. (Must sit above the early returns below.)
+  const draft = useDraft<{ shots: InstallShot[]; pamphletShots: PamphletShot[]; pincode: string; notes: string }>(
+    userId ? `${userId}_install_${taskId}` : null,
+    { shots, pamphletShots, pincode, notes },
+    {
+      enabled: !!task,
+      isEmpty: (d) => !d.notes && !d.pincode && d.pamphletShots.length === 0 && d.shots.every((x) => !x.uri),
+      onRestore: async (d) => {
+        const planLen = task?.signage_plan?.length ?? 0;
+        if (task?.installation_type === 'direct') {
+          const kept: PamphletShot[] = [];
+          for (const x of d.pamphletShots ?? []) if (await fileExists(x.uri)) kept.push(x);
+          setPamphletShots(kept);
+        } else if (d.shots?.length === planLen) {
+          setShots(await Promise.all(d.shots.map(async (x) =>
+            (await fileExists(x.uri)) ? x : { uri: null, coords: null })));
+        }
+        setPincode(d.pincode ?? '');
+        setNotes(d.notes ?? '');
+      },
+    }
+  );
+
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
   if (loadError) return <ErrorState message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />;
   if (!task) return <Text style={styles.error}>Task not found</Text>;
+  if (!draft.hydrated) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
 
   const isPamphlet = task.installation_type === 'direct';
   const storeCoords: Coords | null =
@@ -78,22 +109,24 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
     if (!pincode.trim()) { Alert.alert('Required', 'Enter the pincode for this drop before submitting'); return; }
     setSubmitting(true);
     try {
-      const uploaded: PamphletPhotoPayload[] = [];
-      for (const s of pamphletShots) {
-        const url = await upload(s.uri);
-        if (!url) { Alert.alert('Upload Failed', 'Could not upload a photo.'); return; }
-        uploaded.push({
-          photo_url: url,
-          lat: s.lat ?? undefined,
-          long: s.long ?? undefined,
-          area_label: s.area,
-        });
+      const urls = await uploadAll(pamphletShots.map((s) => s.uri));
+      const failed = urls.findIndex((u) => !u);
+      if (failed >= 0) {
+        Alert.alert('Upload Failed', `Could not upload photo ${failed + 1}. Your draft is saved — check your connection and try again.`);
+        return;
       }
-      await submitInstallation(taskId, {
-        notes: notes || undefined,
-        pincode: pincode.trim(),
-        photos: uploaded,
-      });
+      const uploaded: PamphletPhotoPayload[] = pamphletShots.map((s, i) => ({
+        photo_url: urls[i]!,
+        lat: s.lat ?? undefined,
+        long: s.long ?? undefined,
+        area_label: s.area,
+      }));
+      try {
+        await submitInstallation(taskId, { notes: notes || undefined, pincode: pincode.trim(), photos: uploaded });
+      } catch (e) {
+        if (!(await taskReached(taskId, ['completed']))) throw e;
+      }
+      await draft.clear();
       Alert.alert('Done', 'Task marked as completed.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (e: unknown) {
       Alert.alert('Installation Failed', apiError(e));
@@ -113,22 +146,30 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
       const recee1 = plan[0]?.recee_lat != null && plan[0]?.recee_long != null
         ? { lat: Number(plan[0].recee_lat), long: Number(plan[0].recee_long) }
         : null;
-      const payload: InstallSignagePayload[] = [];
-      for (let i = 0; i < plan.length; i++) {
+      const urls = await uploadAll(shots.slice(0, plan.length).map((x) => x.uri!));
+      const failed = urls.findIndex((u) => !u);
+      if (failed >= 0) {
+        Alert.alert('Upload Failed', `Could not upload the photo for Signage ${failed + 1}. Your draft is saved — check your connection and try again.`);
+        return;
+      }
+      const payload: InstallSignagePayload[] = plan.map((item, i) => {
         const shot = shots[i];
-        const url = await upload(shot.uri!);
-        if (!url) { Alert.alert('Upload Failed', `Could not upload the photo for Signage ${i + 1}.`); return; }
-        payload.push({
-          signage_index: plan[i].signage_index,
-          photo_url: url,
+        return {
+          signage_index: item.signage_index,
+          photo_url: urls[i]!,
           lat: shot.coords!.lat,
           long: shot.coords!.long,
           distance_from_store_m: i === 0 && storeCoords ? haversineMeters(shot.coords!, storeCoords) : undefined,
           distance_from_recee_m: i === 0 && recee1 ? haversineMeters(shot.coords!, recee1) : undefined,
           distance_from_first_m: i > 0 ? haversineMeters(shot.coords!, firstCoords) : undefined,
-        });
+        };
+      });
+      try {
+        await submitInstallation(taskId, { notes: notes || undefined, signages: payload });
+      } catch (e) {
+        if (!(await taskReached(taskId, ['completed', 'installed']))) throw e;
       }
-      await submitInstallation(taskId, { notes: notes || undefined, signages: payload });
+      await draft.clear();
       Alert.alert('Done', 'Installation marked as completed.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (e: unknown) {
       Alert.alert('Installation Failed', apiError(e));
@@ -140,6 +181,7 @@ function InstallFlowInner({ taskId }: { taskId: string }) {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+      <DraftBanner savedAt={draft.restoredAt} onDiscard={async () => { await draft.clear(); onReset(); }} />
       <Text style={styles.title}>Installation</Text>
       {task.store_name && <Text style={styles.sub}>{task.store_name}</Text>}
 

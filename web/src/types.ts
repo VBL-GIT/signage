@@ -67,6 +67,8 @@ export interface Store {
   // Retained: stores keep their vendor mapping, the creation form just no
   // longer asks for it, so newly created stores start with vendor_id null.
   vendor_id: string | null; vendor_name?: string | null;
+  /** Added by an employee in the field; Customer Code is a placeholder (FLD-…) until head office sets the real one. */
+  is_field_added?: boolean;
 }
 
 export interface TaskStepPhoto {
@@ -101,6 +103,7 @@ export interface SignagePlanItem {
 }
 
 export interface Task {
+  is_field_initiated?: boolean;
   id: string; task_type: TaskType; installation_type: InstallationType | null;
   parent_task_id: string | null; status: TaskStatus;
   store_id: string | null; store_name: string | null; store_address: string | null;

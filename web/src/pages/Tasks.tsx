@@ -219,7 +219,7 @@ function JobsView({ tasks, navigate, onFilterChange }: { tasks: Task[]; navigate
               <div key={job.key} className="list-row" onClick={() => navigate(`/tasks/${t.id}`)}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{label(t)}</div>
-                  <div className="meta">{t.store_name ?? 'No store'}{t.vendor_name ? ` · ${t.vendor_name}` : ''}{t.employee_name ? ` · ${t.employee_name}` : ' · unassigned'}</div>
+                  <div className="meta">{t.store_name ?? 'No store'}{t.is_field_initiated ? ' · Field recee' : ''}{t.vendor_name ? ` · ${t.vendor_name}` : ''}{t.employee_name ? ` · ${t.employee_name}` : ' · unassigned'}</div>
                   <div className="muted" style={{ fontSize: 12 }}>{new Date(t.created_at).toLocaleDateString()}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>

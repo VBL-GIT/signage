@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
-import { listStores, getStore, createStore, updateStore, assignEmployee, removeAssignment } from '../controllers/stores.controller';
+import { listNearbyStores, listStores, getStore, createStore, updateStore, assignEmployee, removeAssignment } from '../controllers/stores.controller';
 
 const router = Router();
 
@@ -15,6 +15,8 @@ const coord = z.union([z.number(), z.string().min(1)]);
 
 router.use(authenticate);
 router.get('/', listStores as any);
+// Employee duplicate check for the field-recee flow. Before '/:id'.
+router.get('/nearby', requireRole('employee'), listNearbyStores as any);
 router.get('/:id', getStore as any);
 
 // Exported so scripts/test-validation.ts checks the schema the app actually

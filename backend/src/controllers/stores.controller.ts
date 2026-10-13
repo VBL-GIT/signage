@@ -234,3 +234,37 @@ export async function removeAssignment(req: AuthRequest, res: Response) {
   );
   res.json({ message: 'Assignment removed' });
 }
+
+/**
+ * Duplicate guard for the employee field-recee flow: stores within ~150 m of the
+ * given point, or whose name matches `q`. Deliberately slim (no contact data)
+ * and limited to the employee's own vendor (or unmapped stores).
+ */
+export async function listNearbyStores(req: AuthRequest, res: Response) {
+  const lat = Number(req.query.lat);
+  const long = Number(req.query.long);
+  const q = String(req.query.q ?? '').trim();
+  const hasPoint = Number.isFinite(lat) && Number.isFinite(long);
+  if (!hasPoint && q.length < 3) { res.json([]); return; }
+
+  const { rows } = await pool.query(
+    `SELECT id, name, address, pincode, lat, long, is_field_added, distance_m FROM (
+       SELECT s.id, s.name, s.address, s.pincode, s.lat, s.long, s.is_field_added,
+         CASE WHEN $1::float8 IS NULL THEN NULL ELSE
+           6371000 * 2 * asin(sqrt(
+             power(sin(radians(s.lat::float8 - $1::float8) / 2), 2) +
+             cos(radians($1::float8)) * cos(radians(s.lat::float8)) *
+             power(sin(radians(s.long::float8 - $2::float8) / 2), 2)
+           )) END AS distance_m
+       FROM stores s
+       WHERE (s.vendor_id IS NULL OR $3::uuid IS NULL OR s.vendor_id = $3)
+         AND COALESCE(lower(s.outlet_status), '') NOT IN ('inactive', 'closed')
+     ) x
+     WHERE (distance_m IS NOT NULL AND distance_m <= 150)
+        OR ($4 <> '' AND lower(name) LIKE '%' || lower($4) || '%')
+     ORDER BY distance_m NULLS LAST, name
+     LIMIT 10`,
+    [hasPoint ? lat : null, hasPoint ? long : null, req.user!.vendor_id ?? null, q]
+  );
+  res.json(rows);
+}

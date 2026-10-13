@@ -37,7 +37,7 @@ export function Stores() {
         {filtered.map((s) => (
           <div key={s.id} className="list-row" onClick={() => navigate(`/stores/${s.id}`)}>
             <div>
-              <div style={{ fontWeight: 700 }}>{s.name} {s.uid && <span className="muted">· {s.uid}</span>}</div>
+              <div style={{ fontWeight: 700 }}>{s.name} {s.uid && <span className="muted">· {s.uid}</span>}{s.is_field_added && <span style={{ color: 'var(--danger)', fontWeight: 600 }}> · Field-added — set real Customer Code</span>}</div>
               <div className="meta">
                 {s.customer_code ? `${s.customer_code} · ` : ''}{s.address} · {s.pincode}
                 {s.outlet_status ? ` · ${s.outlet_status}` : ''}

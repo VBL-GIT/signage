@@ -106,7 +106,7 @@ export function SignageCaptureList({ storeCoords, value, onChange, max = 5 }: Re
           </View>
 
           <Text style={styles.fieldLabel}>Size</Text>
-          <BoardingSizeSelector onSelect={(size) => update(i, { size })} />
+          <BoardingSizeSelector initial={s.size} onSelect={(size) => update(i, { size })} />
         </Card>
       ))}
 

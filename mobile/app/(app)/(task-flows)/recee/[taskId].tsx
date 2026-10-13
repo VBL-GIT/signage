@@ -4,7 +4,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SignageCaptureList, SignageDraft, makeEmptySignage } from '../../../../components/forms/SignageCaptureList';
 import { Button } from '../../../../components/ui/Button';
 import { useUpload } from '../../../../hooks/useUpload';
-import { getTask, submitRecee, ReceeSignagePayload } from '../../../../services/tasks.api';
+import { useDraft } from '../../../../hooks/useDraft';
+import { DraftBanner } from '../../../../components/ui/DraftBanner';
+import { fileExists } from '../../../../utils/drafts';
+import { useAuthStore } from '../../../../store/auth.store';
+import { getTask, submitRecee, taskReached, ReceeSignagePayload } from '../../../../services/tasks.api';
 import { apiError } from '../../../../services/api';
 import { Task } from '../../../../types/domain';
 import { Coords, haversineMeters } from '../../../../utils/distance';
@@ -15,13 +19,15 @@ export default function ReceeFlow() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
   // Hidden Tabs.Screen singleton reused across tasks — key the inner flow by taskId
   // so capture drafts fully reset per task (no image leaks between recee tasks).
+  const [resetNonce, setResetNonce] = useState(0);
   if (!taskId) return null;
-  return <ReceeFlowInner key={taskId} taskId={taskId} />;
+  return <ReceeFlowInner key={`${taskId}:${resetNonce}`} taskId={taskId} onReset={() => setResetNonce((n) => n + 1)} />;
 }
 
-function ReceeFlowInner({ taskId }: { taskId: string }) {
+function ReceeFlowInner({ taskId, onReset }: { taskId: string; onReset: () => void }) {
   const router = useRouter();
-  const { upload, uploading } = useUpload();
+  const userId = useAuthStore((s) => s.user?.id);
+  const { uploadAll, uploading } = useUpload();
 
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +46,23 @@ function ReceeFlowInner({ taskId }: { taskId: string }) {
       .finally(() => setLoading(false));
   }, [taskId, reloadKey]);
 
+  // Autosaved draft: photos, per-signage details and notes survive an app kill or a
+  // dropped connection. Photos whose file has gone missing are cleared, not kept broken.
+  const draft = useDraft<{ signages: SignageDraft[]; notes: string }>(
+    userId ? `${userId}_recee_${taskId}` : null,
+    { signages, notes },
+    {
+      enabled: !!task,
+      isEmpty: (d) => !d.notes && d.signages.every((s) => !s.uri && !s.signage_type && !s.size.boarding_size_id && !s.size.custom_width_cm),
+      onRestore: async (d) => {
+        const restored = await Promise.all(d.signages.map(async (s) =>
+          (await fileExists(s.uri)) ? s : { ...s, uri: null, coords: null, annotation: null }));
+        if (restored.length) setSignages(restored);
+        setNotes(d.notes ?? '');
+      },
+    }
+  );
+
   const storeCoords: Coords | null =
     task?.store_lat != null && task?.store_long != null
       ? { lat: Number(task.store_lat), long: Number(task.store_long) }
@@ -57,25 +80,31 @@ function ReceeFlowInner({ taskId }: { taskId: string }) {
     setSubmitting(true);
     try {
       const firstCoords = signages[0].coords!;
-      const payload: ReceeSignagePayload[] = [];
-      for (let i = 0; i < signages.length; i++) {
-        const s = signages[i];
-        const url = await upload(s.uri!);
-        if (!url) { Alert.alert('Upload Failed', `Could not upload the photo for Signage ${i + 1}.`); return; }
-        payload.push({
-          photo_url: url,
-          lat: s.coords!.lat,
-          long: s.coords!.long,
-          signage_type: s.signage_type!,
-          boarding_size_id: s.size.boarding_size_id,
-          custom_width_cm: s.size.custom_width_cm,
-          custom_height_cm: s.size.custom_height_cm,
-          annotation: s.annotation ?? undefined,
-          distance_from_store_m: i === 0 && storeCoords ? haversineMeters(s.coords!, storeCoords) : undefined,
-          distance_from_first_m: i > 0 ? haversineMeters(s.coords!, firstCoords) : undefined,
-        });
+      const urls = await uploadAll(signages.map((s) => s.uri!));
+      const failed = urls.findIndex((u) => !u);
+      if (failed >= 0) {
+        Alert.alert('Upload Failed', `Could not upload the photo for Signage ${failed + 1}. Your draft is saved — check your connection and try again.`);
+        return;
       }
-      await submitRecee(taskId, { notes: notes || undefined, signages: payload });
+      const payload: ReceeSignagePayload[] = signages.map((s, i) => ({
+        photo_url: urls[i]!,
+        lat: s.coords!.lat,
+        long: s.coords!.long,
+        signage_type: s.signage_type!,
+        boarding_size_id: s.size.boarding_size_id,
+        custom_width_cm: s.size.custom_width_cm,
+        custom_height_cm: s.size.custom_height_cm,
+        annotation: s.annotation ?? undefined,
+        distance_from_store_m: i === 0 && storeCoords ? haversineMeters(s.coords!, storeCoords) : undefined,
+        distance_from_first_m: i > 0 ? haversineMeters(s.coords!, firstCoords) : undefined,
+      }));
+      try {
+        await submitRecee(taskId, { notes: notes || undefined, signages: payload });
+      } catch (e) {
+        // The response may have been lost after the server accepted it.
+        if (!(await taskReached(taskId, ['recee_submitted']))) throw e;
+      }
+      await draft.clear();
       Alert.alert('Recee Submitted', 'Waiting for approval.', [{ text: 'OK', onPress: () => router.back() }]);
     } catch (e: unknown) {
       Alert.alert('Recee Submission Failed', apiError(e));
@@ -86,10 +115,12 @@ function ReceeFlowInner({ taskId }: { taskId: string }) {
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
   if (loadError) return <ErrorState message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />;
+  if (!draft.hydrated) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+      <DraftBanner savedAt={draft.restoredAt} onDiscard={async () => { await draft.clear(); onReset(); }} />
       <Text style={styles.title}>Recee Submission</Text>
       {task?.store_name && <Text style={styles.sub}>{task.store_name}</Text>}
       {!storeCoords && <Text style={styles.warn}>Store location unknown — distance from store can't be computed.</Text>}

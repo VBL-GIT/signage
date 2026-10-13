@@ -14,6 +14,7 @@ export default function AppLayout() {
       <Tabs.Screen name="(profile)" options={{ title: 'Profile' }} />
       <Tabs.Screen name="(task-flows)/recee/[taskId]" options={{ href: null }} />
       <Tabs.Screen name="(task-flows)/install/[taskId]" options={{ href: null }} />
+      <Tabs.Screen name="(task-flows)/field-recee" options={{ href: null }} />
     </Tabs>
   );
 }

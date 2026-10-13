@@ -173,6 +173,7 @@ export interface Task {
   custom_height_cm: number | null;
   target_pamphlet_count: number | null;
   pincode: string | null;
+  is_field_initiated?: boolean;
   created_at: string;
   updated_at: string;
   completed_at?: string | null;

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { persistPhoto } from '../utils/drafts';
 
 export function useCamera() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -10,8 +11,10 @@ export function useCamera() {
     if (!cameraRef.current) return null;
     const photo = await cameraRef.current.takePictureAsync({ quality: 0.7, base64: false });
     if (!photo) return null;
-    setPhotoUri(photo.uri);
-    return photo.uri;
+    // Move out of the cache dir (which Android can purge) so a draft's photos survive.
+    const uri = await persistPhoto(photo.uri);
+    setPhotoUri(uri);
+    return uri;
   }
 
   function clearPhoto() {
