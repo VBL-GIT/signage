@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth, useHasPrivilege } from '../store/auth';
 import { ROLE_LABELS } from '../types';
 import { Button } from './ui';
+import { getPasswordRequestCount } from '../api';
 
 export function Layout() {
   const user = useAuth((s) => s.user);
@@ -13,6 +14,16 @@ export function Layout() {
 
   // Pick up custom-role privilege changes without forcing a re-login.
   useEffect(() => { refreshPrivileges(); }, []);
+
+  const canHandlePasswords = user?.role === 'rjcorp_admin' || user?.role === 'vendor_admin';
+  const [pendingPw, setPendingPw] = useState(0);
+  useEffect(() => {
+    if (!canHandlePasswords) return;
+    const load = () => getPasswordRequestCount().then(setPendingPw).catch(() => undefined);
+    load();
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [canHandlePasswords]);
 
   if (!user) return <Navigate to="/login" replace />;
 
@@ -51,6 +62,7 @@ export function Layout() {
         {showAssignments && link('/assignments', 'Bulk Assignment')}
         {showApprovals && link('/approvals', 'Approvals')}
         {showManage && link('/manage', 'Manage')}
+        {canHandlePasswords && link('/password-requests', pendingPw ? `Password requests (${pendingPw})` : 'Password requests')}
         {isRjcorp && link('/images', 'Images')}
         <div className="spacer" />
         <div className="who">{user.name}<br /><span className="muted">{ROLE_LABELS[user.role]}</span></div>

@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { pool } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 import {
-  resolveUserScope, insertUser, duplicateEmailMessage, findUserByEmail,
+  resolveUserScope, insertUser, duplicateEmailMessage, findUserByEmail, canAdministerPassword, setAccountPassword,
 } from '../services/users.service';
 import { verifyEmailDeliverable, sendCredentialsEmail } from '../services/email.service';
 import { generateTemporaryPassword } from '../services/password';
@@ -334,20 +334,7 @@ export async function getUserPassword(req: AuthRequest, res: Response) {
   const target = rows[0];
   if (!target) { res.status(404).json({ error: 'User not found' }); return; }
 
-  const isRjcorpAdmin = viewer.role === 'rjcorp_admin';
-  const isOwnVendorAdmin =
-    viewer.role === 'vendor_admin' &&
-    !!viewer.vendor_id &&
-    target.vendor_id === viewer.vendor_id;
-
-  if (!isRjcorpAdmin && !isOwnVendorAdmin) {
-    res.status(403).json({ error: 'You do not have permission to view this password' });
-    return;
-  }
-
-  // A vendor admin may read their own staff, not another vendor admin's peers
-  // at head office who happen to share a vendor_id of null.
-  if (isOwnVendorAdmin && (target.role === 'rjcorp_admin' || target.role === 'rjcorp_user')) {
+  if (!canAdministerPassword(viewer, target)) {
     res.status(403).json({ error: 'You do not have permission to view this password' });
     return;
   }
@@ -364,4 +351,27 @@ export async function getUserPassword(req: AuthRequest, res: Response) {
           : 'Password viewing is not configured on this server (CREDENTIAL_ENC_KEY is unset).')
       : null,
   });
+}
+
+/**
+ * Set a new password on an existing account. The ONLY way an account's password
+ * changes after creation (users cannot change their own). Omit `password` to have
+ * one generated. Returns the plaintext once, for the admin to pass to the user.
+ */
+export async function setUserPassword(req: AuthRequest, res: Response) {
+  const { rows } = await pool.query('SELECT id, role, vendor_id FROM users WHERE id = $1', [req.params.id]);
+  const target = rows[0];
+  if (!target) { res.status(404).json({ error: 'User not found' }); return; }
+  if (!canAdministerPassword(req.user!, target)) {
+    res.status(403).json({ error: 'You do not have permission to change this password' }); return;
+  }
+  const password = (req.body as { password?: string }).password || generateTemporaryPassword();
+  await setAccountPassword(target.id, password);
+  // Any open "forgot password" request for this account is now answered.
+  await pool.query(
+    `UPDATE password_requests SET status = 'resolved', resolved_at = NOW(), resolved_by = $2
+      WHERE user_id = $1 AND status = 'pending'`,
+    [target.id, req.user!.id]
+  );
+  res.json({ user_id: target.id, password });
 }

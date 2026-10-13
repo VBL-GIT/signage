@@ -22,3 +22,13 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many requests. Please slow down.' },
 });
+
+// Forgot-password is unauthenticated and writes a row an admin has to read, so it
+// is throttled hard per IP to stop it being used to flood the admin's queue.
+export const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' },
+});

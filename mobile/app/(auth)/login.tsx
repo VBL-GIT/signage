@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import { useAuthStore } from '../../store/auth.store';
 import { apiError } from '../../services/api';
-import { forgotPassword } from '../../services/auth.api';
+import { useRouter } from 'expo-router';
 import { Button } from '../../components/ui/Button';
 import { colors, spacing, radius } from '../../constants/theme';
 
@@ -10,7 +10,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const router = useRouter();
   const login = useAuthStore((s) => s.login);
 
   async function handleLogin() {
@@ -22,19 +22,6 @@ export default function LoginScreen() {
       Alert.alert('Login Failed', apiError(e));
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleForgotPassword() {
-    if (!email) { Alert.alert('Forgot Password', 'Enter your email above first, then tap "Forgot password?" again.'); return; }
-    setResetting(true);
-    try {
-      await forgotPassword(email.trim().toLowerCase());
-      Alert.alert('Check Your Email', 'If an account exists for that email, we\'ve sent a password reset link. Open it from your email app to set a new password, then come back and sign in.');
-    } catch (e: unknown) {
-      Alert.alert('Error', apiError(e));
-    } finally {
-      setResetting(false);
     }
   }
 
@@ -65,8 +52,8 @@ export default function LoginScreen() {
             placeholderTextColor={colors.textMuted}
           />
           <Button title="Sign In" onPress={handleLogin} loading={loading} style={styles.btn} />
-          <TouchableOpacity onPress={handleForgotPassword} disabled={resetting} style={styles.forgotLink}>
-            <Text style={styles.forgotText}>{resetting ? 'Sending…' : 'Forgot password?'}</Text>
+          <TouchableOpacity onPress={() => router.push({ pathname: '/(auth)/forgot-password', params: { email: email.trim() } })} style={styles.forgotLink}>
+            <Text style={styles.forgotText}>Forgot password?</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

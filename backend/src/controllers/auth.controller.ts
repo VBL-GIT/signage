@@ -2,23 +2,15 @@ import { Request, Response } from 'express';
 import { pool } from '../config/db';
 import {
   verifyPassword,
-  hashPassword,
   generateAccessToken,
   generateRefreshToken,
   storeRefreshToken,
   validateRefreshToken,
   revokeRefreshToken,
-  revokeAllRefreshTokens,
-  createPasswordResetToken,
-  validatePasswordResetToken,
-  consumePasswordResetToken,
-  buildResetUrl,
 } from '../services/auth.service';
-import { sendPasswordResetEmail, isEmailConfigured } from '../services/email.service';
 
 import { getEffectivePrivileges } from '../auth/privileges';
 import { AuthRequest } from '../middleware/auth';
-import { sealPassword } from '../services/credential-vault';
 
 export async function login(req: Request, res: Response) {
   const { email, password } = req.body;
@@ -86,46 +78,34 @@ export async function logout(req: Request, res: Response) {
 }
 
 /**
- * Request a password reset link by email. Always responds with the same
- * generic message regardless of whether the account exists or email sending
- * is configured — this prevents leaking which addresses have accounts.
+ * Forgot password: files a request for an administrator, who sets a new password
+ * on the web console and passes it on. Nobody can change a password themselves.
+ *
+ * Always answers the same generic message whether or not the account exists, so
+ * the endpoint cannot be used to discover which emails have accounts. One open
+ * request per account: asking again refreshes it.
  */
 export async function forgotPassword(req: Request, res: Response) {
-  const { email } = req.body as { email: string };
-  const GENERIC_MSG = 'If an account exists for that email, a reset link has been sent.';
+  const { email, name, mobile } = req.body as { email: string; name?: string; mobile?: string };
+  const GENERIC_MSG = 'Your request has been sent to the administrator. They will contact you with a new password.';
 
   const { rows } = await pool.query(
-    'SELECT id, name, email FROM users WHERE lower(email) = lower($1) AND is_active = true',
+    'SELECT id FROM users WHERE lower(email) = lower($1) AND is_active = true',
     [String(email).trim()]
   );
-  const user = rows[0];
-  if (user) {
-    const token = await createPasswordResetToken(user.id);
-    await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl: buildResetUrl(token) });
+  if (rows[0]) {
+    await pool.query(
+      `INSERT INTO password_requests (user_id, entered_name, entered_mobile)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) WHERE status = 'pending'
+       DO UPDATE SET entered_name = EXCLUDED.entered_name, entered_mobile = EXCLUDED.entered_mobile, created_at = NOW()`,
+      [rows[0].id, name?.trim() || null, mobile?.trim() || null]
+    );
   }
-  res.json({ message: GENERIC_MSG, email_configured: isEmailConfigured() });
+  res.json({ message: GENERIC_MSG });
 }
 
-export async function resetPassword(req: Request, res: Response) {
-  const { token, password } = req.body as { token: string; password: string };
-
-  const record = await validatePasswordResetToken(token);
-  if (!record) {
-    res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
-    return;
-  }
-
-  const hash = await hashPassword(password);
-  // Keep the admin-viewable copy in step with the new password. Without this a
-  // reset would leave the previous one on display, which is worse than showing
-  // nothing at all.
-  await pool.query(
-    'UPDATE users SET password_hash = $1, password_encrypted = $2 WHERE id = $3',
-    [hash, sealPassword(password), record.user_id]
-  );
-  await consumePasswordResetToken(record.id);
-  // Force re-login everywhere — a leaked old session shouldn't survive a reset.
-  await revokeAllRefreshTokens(record.user_id);
-
-  res.json({ message: 'Password updated. You can now log in with your new password.' });
+/** The emailed reset link is retired — passwords are set by an administrator only. */
+export async function resetPassword(_req: Request, res: Response) {
+  res.status(410).json({ error: 'Password reset links are no longer used. Ask your administrator to set a new password.' });
 }

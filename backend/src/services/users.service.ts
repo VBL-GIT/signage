@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { sealPassword } from './credential-vault';
 import { pool } from '../config/db';
 import { UserRole } from '../types/domain';
+import { revokeAllRefreshTokens } from './auth.service';
 
 export interface CreateUserInput {
   first_name: string;
@@ -123,4 +124,36 @@ export async function insertUser(input: CreateUserInput) {
     [name, input.first_name, input.last_name, email, hash, sealed, input.role, input.mobile || null, input.vendor_id || null, uid]
   );
   return rows[0];
+}
+
+/**
+ * Who may view / set an account's password: RJCorp admins for any account, and a
+ * vendor admin for their own vendor's staff (never head-office accounts). Pure so
+ * every endpoint that touches passwords shares the one rule.
+ */
+export function canAdministerPassword(
+  viewer: { role: string; vendor_id: string | null },
+  target: { role: string; vendor_id: string | null }
+): boolean {
+  if (viewer.role === 'rjcorp_admin') return true;
+  return (
+    viewer.role === 'vendor_admin' &&
+    !!viewer.vendor_id &&
+    target.vendor_id === viewer.vendor_id &&
+    target.role !== 'rjcorp_admin' &&
+    target.role !== 'rjcorp_user'
+  );
+}
+
+/**
+ * Sets an account's password (the only way an existing password changes) and
+ * signs the account out everywhere. Keeps the admin-viewable copy in step.
+ */
+export async function setAccountPassword(userId: string, plain: string): Promise<void> {
+  const hash = await bcrypt.hash(plain, 10);
+  await pool.query(
+    'UPDATE users SET password_hash = $1, password_encrypted = $2, updated_at = NOW() WHERE id = $3',
+    [hash, sealPassword(plain), userId]
+  );
+  await revokeAllRefreshTokens(userId);
 }

@@ -14,7 +14,8 @@ export async function logout(refreshToken: string) {
   await api.post('/api/auth/logout', { refresh_token: refreshToken });
 }
 
-export async function forgotPassword(email: string): Promise<{ message: string }> {
-  const { data } = await api.post('/api/auth/forgot-password', { email });
+/** Files a forgot-password request for an administrator (users cannot change their own password). */
+export async function forgotPassword(email: string, name?: string, mobile?: string): Promise<{ message: string }> {
+  const { data } = await api.post('/api/auth/forgot-password', { email, name: name || undefined, mobile: mobile || undefined });
   return data;
 }

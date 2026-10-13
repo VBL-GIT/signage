@@ -6,6 +6,7 @@ import {
   getBrands, createBrand, getArtworks, createArtwork, updateArtwork, uploadPublicImage,
   downloadVendorsReport, downloadEmployeesReport, downloadBrandsReport, downloadArtworksReport,
   getUserPassword,
+  setUserPassword,
 } from '../api';
 import type { Vendor, User, UserRole, Role, PrivilegeDef, Privilege, Brand, Artwork } from '../types';
 import { ROLE_LABELS } from '../types';
@@ -604,6 +605,8 @@ function Roles() {
  * browsing another vendor's staff has no reason to be told a password exists.
  */
 function PasswordDetail({ userId }: { userId: string }) {
+  const [newPw, setNewPw] = useState('');
+  const [saving, setSaving] = useState(false);
   const [state, setState] = useState<
     { status: 'idle' | 'loading' | 'hidden' } |
     { status: 'shown'; password: string | null; reason: string | null }
@@ -637,6 +640,21 @@ function PasswordDetail({ userId }: { userId: string }) {
           {state.status === 'loading' ? 'Loading…' : 'Show password'}
         </Button>
       )}
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          style={{ maxWidth: 220 }} placeholder="New password (blank = generate)"
+          value={newPw} onChange={(e) => setNewPw(e.target.value)}
+        />
+        <Button size="sm" disabled={saving || (!!newPw && newPw.length < 8)} onClick={async () => {
+          if (!confirm('Set a new password for this account? They will be signed out everywhere.')) return;
+          setSaving(true);
+          try {
+            const r = await setUserPassword(userId, newPw || undefined);
+            setNewPw('');
+            setState({ status: 'shown', password: r.password, reason: null });
+          } catch (e) { alert(apiError(e)); } finally { setSaving(false); }
+        }}>{saving ? 'Saving…' : 'Set new password'}</Button>
+      </div>
     </div>
   );
 }

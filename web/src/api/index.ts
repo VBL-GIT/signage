@@ -1,6 +1,6 @@
 import { api } from './client';
 import type {
-  Task, Vendor, Store, Brand, BoardingSize, Artwork, User, SignageType, Role, PrivilegeDef, Privilege, TaskImage,
+  Task, UserRole, Vendor, Store, Brand, BoardingSize, Artwork, User, SignageType, Role, PrivilegeDef, Privilege, TaskImage,
 } from '../types';
 
 // ---- auth
@@ -11,12 +11,8 @@ export async function login(email: string, password: string) {
 export async function logoutApi(refresh_token: string) {
   await api.post('/api/auth/logout', { refresh_token }).catch(() => {});
 }
-export async function forgotPassword(email: string) {
-  const { data } = await api.post('/api/auth/forgot-password', { email });
-  return data as { message: string };
-}
-export async function resetPassword(token: string, password: string) {
-  const { data } = await api.post('/api/auth/reset-password', { token, password });
+export async function forgotPassword(email: string, name?: string, mobile?: string) {
+  const { data } = await api.post('/api/auth/forgot-password', { email, name: name || undefined, mobile: mobile || undefined });
   return data as { message: string };
 }
 
@@ -290,4 +286,34 @@ export async function getUserPassword(id: string) {
     user_id: string; email: string;
     password: string | null; available: boolean; reason: string | null;
   };
+}
+
+// ---- password requests (forgot-password handled by an admin)
+export interface PasswordRequest {
+  id: string; status: 'pending' | 'resolved' | 'dismissed';
+  created_at: string; resolved_at: string | null;
+  entered_name: string | null; entered_mobile: string | null;
+  user_id: string; name: string; email: string; role: UserRole; mobile: string | null;
+  vendor_name: string | null; resolved_by_name: string | null;
+}
+export async function getPasswordRequests(status: 'pending' | 'all' = 'pending') {
+  const { data } = await api.get('/api/password-requests', { params: { status } });
+  return data as PasswordRequest[];
+}
+export async function getPasswordRequestCount() {
+  const { data } = await api.get('/api/password-requests/count');
+  return (data as { count: number }).count;
+}
+/** Sets the user's new password (generated when `password` is omitted); returns it once. */
+export async function resolvePasswordRequest(id: string, password?: string) {
+  const { data } = await api.post(`/api/password-requests/${id}/resolve`, { password: password || undefined });
+  return data as { user_id: string; password: string };
+}
+export async function dismissPasswordRequest(id: string) {
+  await api.post(`/api/password-requests/${id}/dismiss`);
+}
+/** Admin sets an account's password directly (generated when omitted). */
+export async function setUserPassword(id: string, password?: string) {
+  const { data } = await api.put(`/api/users/${id}/password`, { password: password || undefined });
+  return data as { user_id: string; password: string };
 }

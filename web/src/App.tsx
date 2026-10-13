@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { ForgotPassword } from './pages/ForgotPassword';
-import { ResetPassword } from './pages/ResetPassword';
+import { PasswordRequests } from './pages/PasswordRequests';
 import { Tasks } from './pages/Tasks';
 import { TaskDetail } from './pages/TaskDetail';
 import { Approve } from './pages/Approve';
@@ -21,7 +21,6 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<Layout />}>
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/images" element={<Images />} />
@@ -35,6 +34,7 @@ export default function App() {
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/bulk" element={<BulkUpload />} />
         <Route path="/manage" element={<Manage />} />
+        <Route path="/password-requests" element={<PasswordRequests />} />
       </Route>
       <Route path="*" element={<Navigate to="/tasks" replace />} />
     </Routes>

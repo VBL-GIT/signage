@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
-import { listBrands, createBrand, listBoardingSizes, listUsers, createUser, updateUser, setUserActive, setUserRole, deleteEmployee, getUserPassword } from '../controllers/reference.controller';
+import { listBrands, createBrand, listBoardingSizes, listUsers, createUser, updateUser, setUserActive, setUserRole, deleteEmployee, getUserPassword, setUserPassword } from '../controllers/reference.controller';
 
 const router = Router();
 router.use(authenticate);
@@ -50,6 +50,13 @@ router.post('/users',
 router.get('/users/:id/password',
   requireRole('rjcorp_admin', 'vendor_admin'),
   getUserPassword as any);
+
+// Set a new password (RJ admin: any account; vendor admin: own staff). Users cannot
+// change their own password; see the password-requests routes for forgot-password.
+router.put('/users/:id/password',
+  requireRole('rjcorp_admin', 'vendor_admin'),
+  validate(z.object({ password: z.string().min(8).max(128).optional() })),
+  setUserPassword as any);
 
 router.patch('/users/:id/status',
   requirePrivilege('user.status'),
