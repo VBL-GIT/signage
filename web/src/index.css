@@ -20,22 +20,22 @@
   --shadow: 0 1px 3px rgba(16, 38, 66, 0.08), 0 1px 2px rgba(16, 38, 66, 0.06);
 }
 :root[data-theme='dark'] {
-  --brand:#3b82c4; --brand-dk:#111111; --bg:#0a0a0a; --surface:#141414; --border:#2a2a2a; --text:#ededed; --text-sec:#a3a3a3; --muted:#737373;
+  --brand:#4a90d9; --brand-dk:#111111; --bg:#0a0a0a; --surface:#141414; --border:#2a2a2a; --text:#ffffff; --text-sec:#d4d4d4; --muted:#a3a3a3;
   --success:#5cb85f; --danger:#ef5350; --shadow:0 1px 3px rgba(0,0,0,.6);
   --t-green:#14261a; --t-red:#2c1717; --t-blue:#16222e; --t-orange:#2b2212; --t-gray:#1f1f1f; --t-gray2:#2a2a2a;
   --t-blue2:#17212b; --t-warm:#231e12; --t-bg2:#181818; --t-bg3:#171717; --t-blue3:#18222d; --t-btn:#222222; --t-bg4:#1c1c1c;
-  --t-purple:#221d30; --t-bg5:#202020; --t-blue4:#1c2c3d; --t-line:#333333; --ink-blue:#6db3f2; --ink-orange:#ffb74d; --ink-purple:#b39ddb;
-  --heading:#f2f2f2;
+  --t-purple:#221d30; --t-bg5:#202020; --t-blue4:#1c2c3d; --t-line:#333333; --ink-blue:#8cc8ff; --ink-orange:#ffc870; --ink-purple:#cbb8ff;
+  --heading:#ffffff;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']):not([data-theme='dark']) {
-  --brand:#3b82c4; --brand-dk:#111111; --bg:#0a0a0a; --surface:#141414; --border:#2a2a2a; --text:#ededed; --text-sec:#a3a3a3; --muted:#737373;
+  --brand:#4a90d9; --brand-dk:#111111; --bg:#0a0a0a; --surface:#141414; --border:#2a2a2a; --text:#ffffff; --text-sec:#d4d4d4; --muted:#a3a3a3;
   --success:#5cb85f; --danger:#ef5350; --shadow:0 1px 3px rgba(0,0,0,.6);
   --t-green:#14261a; --t-red:#2c1717; --t-blue:#16222e; --t-orange:#2b2212; --t-gray:#1f1f1f; --t-gray2:#2a2a2a;
   --t-blue2:#17212b; --t-warm:#231e12; --t-bg2:#181818; --t-bg3:#171717; --t-blue3:#18222d; --t-btn:#222222; --t-bg4:#1c1c1c;
-  --t-purple:#221d30; --t-bg5:#202020; --t-blue4:#1c2c3d; --t-line:#333333; --ink-blue:#6db3f2; --ink-orange:#ffb74d; --ink-purple:#b39ddb;
-  --heading:#f2f2f2;
+  --t-purple:#221d30; --t-bg5:#202020; --t-blue4:#1c2c3d; --t-line:#333333; --ink-blue:#8cc8ff; --ink-orange:#ffc870; --ink-purple:#cbb8ff;
+  --heading:#ffffff;
   color-scheme: dark;
   }
 }
