@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getAccessOverview, type AccessOverview, type AccessAccount } from '../api';
+import { getAccessOverview, getPrivilegeCatalog, createRole, updateRole, setUserRole, type AccessOverview, type AccessAccount } from '../api';
 import { useAuth } from '../store/auth';
-import { Card, Spinner, ErrorBanner } from '../components/ui';
+import { Card, Spinner, ErrorBanner, Button } from '../components/ui';
 import { apiError } from '../api/client';
 
 /**
@@ -13,11 +13,34 @@ export function RolesPermissions() {
   const role = useAuth().user?.role;
   const [data, setData] = useState<AccessOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
+  const reload = () => getAccessOverview().then(setData).catch((e) => setErr(apiError(e)));
   useEffect(() => {
     if (role !== 'rjcorp_admin') return;
-    getAccessOverview().then(setData).catch((e) => setErr(apiError(e)));
+    reload();
   }, [role]);
+
+  function startNew() { setEditing(null); setName(''); setPicked(new Set()); }
+  function startEdit(id: string, n: string, p: string[]) { setEditing(id); setName(n); setPicked(new Set(p)); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  function toggle(k: string) { setPicked((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; }); }
+  async function save() {
+    setErr(null);
+    if (!name.trim()) { setErr('Role name is required'); return; }
+    setBusy(true);
+    try {
+      const body = { name: name.trim(), privileges: [...picked] as any };
+      if (editing) await updateRole(editing, body); else await createRole(body);
+      startNew(); await reload();
+    } catch (e) { setErr(apiError(e)); } finally { setBusy(false); }
+  }
+  async function assign(userId: string, roleId: string) {
+    setErr(null);
+    try { await setUserRole(userId, roleId || null); await reload(); } catch (e) { setErr(apiError(e)); }
+  }
 
   if (role !== 'rjcorp_admin') return <p>This page is only available to RJCorp admins.</p>;
   if (err) return <ErrorBanner msg={err} />;
@@ -37,9 +60,29 @@ export function RolesPermissions() {
     <div>
       <h1>Roles &amp; Permissions</h1>
       <p className="meta">
-        Visible to RJCorp admins only. This shows exactly what the server enforces. To change a custom role, use Manage → Roles.
+        Visible to RJCorp admins only. This shows exactly what the server enforces. Create and edit custom roles below, and assign them to RJCorp User accounts.
         Every change made by an admin is recorded with their email in the <b>Audit Log</b>.
       </p>
+
+      <Card>
+        <h3>{editing ? 'Edit custom role' : 'Create a custom role'}</h3>
+        <ErrorBanner msg={err} />
+        <label>Role name</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Regional Coordinator" />
+        <label>Privileges</label>
+        <div style={{ display: 'grid', gap: 6 }}>
+          {data.privileges.map((p) => (
+            <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, margin: 0, opacity: p.admin_only ? 0.55 : 1 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={!p.admin_only && picked.has(p.key)} disabled={p.admin_only} onChange={() => toggle(p.key)} />
+              {p.label}{p.admin_only && <span className="meta">RJ admin only</span>}
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <Button onClick={save} disabled={busy}>{editing ? 'Save changes' : 'Create role'}</Button>
+          {editing && <Button variant="secondary" onClick={startNew}>Cancel</Button>}
+        </div>
+      </Card>
 
       <Card style={{ overflowX: 'auto' }}>
         <h3>Permission matrix</h3>
@@ -91,14 +134,14 @@ export function RolesPermissions() {
                 : r.privileges.map((p) => <span key={p} className="badge speed">{data.privileges.find((x) => x.key === p)?.label ?? p}</span>)}
             </div>
           )}
-          <Accounts users={r.users} showRole={r.key === 'rjcorp_user'} />
+          <Accounts users={r.users} showRole={r.key === 'rjcorp_user'} roles={r.key === 'rjcorp_user' ? data.custom_roles : undefined} onAssign={assign} />
         </Card>
       ))}
 
       {data.custom_roles.length > 0 && <h2 style={{ marginTop: 20 }}>Custom roles</h2>}
       {data.custom_roles.map((c) => (
         <Card key={c.id}>
-          <h3 style={{ margin: 0 }}>{c.name} <span className="muted">· {c.users.length} account{c.users.length === 1 ? '' : 's'}</span></h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0 }}>{c.name} <span className="muted">· {c.users.length} account{c.users.length === 1 ? '' : 's'}</span></h3><Button variant="secondary" onClick={() => startEdit(c.id, c.name, c.privileges)}>Edit</Button></div>
           <div className="chips" style={{ margin: '8px 0' }}>
             {c.privileges.length === 0
               ? <span className="muted">No privileges</span>
@@ -111,7 +154,7 @@ export function RolesPermissions() {
   );
 }
 
-function Accounts({ users, showRole }: { users: AccessAccount[]; showRole?: boolean }) {
+function Accounts({ users, showRole, roles, onAssign }: { users: AccessAccount[]; showRole?: boolean; roles?: { id: string; name: string }[]; onAssign?: (userId: string, roleId: string) => void }) {
   if (users.length === 0) return <div className="muted">No accounts in this role.</div>;
   return (
     <div style={{ display: 'grid', gap: 4 }}>
@@ -120,7 +163,13 @@ function Accounts({ users, showRole }: { users: AccessAccount[]; showRole?: bool
           <b style={{ color: 'var(--text)' }}>{u.name}</b>
           <span>{u.email}</span>
           {u.vendor && <span>· {u.vendor}</span>}
-          {showRole && <span>· {u.custom_role ?? 'no custom role'}</span>}
+          {showRole && !roles && <span>· {u.custom_role ?? 'no custom role'}</span>}
+          {roles && onAssign && (
+            <select style={{ width: 'auto', padding: '2px 6px' }} value={roles.find((r) => r.name === u.custom_role)?.id ?? ''} onChange={(e) => onAssign(u.id, e.target.value)}>
+              <option value="">No custom role</option>
+              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          )}
           {!u.active && <span className="badge cancelled">Inactive</span>}
         </div>
       ))}

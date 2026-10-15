@@ -143,55 +143,6 @@ export function ActivityReport() {
         </div>
       )}
 
-      {summary && (
-        <div className="grid2" style={{ marginBottom: 14 }}>
-          <Card>
-            <h3>By activity type</h3>
-            {typeRows.length === 0 && <div className="muted">No data</div>}
-            {typeRows.map((r) => (
-              <div key={r.type} className="bar-row">
-                <span>{TYPE_LABEL[r.type] ?? r.type}</span>
-                <span className="meta"><b>{r.a + r.u}</b> · {r.a} assigned · {r.u} unassigned</span>
-                <div className="bar-track">
-                  <div className="bar-a" style={{ width: `${(r.a / maxType) * 100}%` }} />
-                  <div className="bar-u" style={{ width: `${(r.u / maxType) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-            <h3 style={{ marginTop: 14 }}>SPEED vs Non-SPEED</h3>
-            <div className="chips">
-              {summary.by_outlet_type.map((r) => <span key={r.outlet_type} className="badge nonspeed">{OUTLET_LABEL[r.outlet_type]}: {r.n}</span>)}
-            </div>
-          </Card>
-          <Card>
-            <h3>Assigned vs Unassigned — by employee</h3>
-            {byEmployeeTop.length === 0 && <div className="muted">No data</div>}
-            {byEmployeeTop.map((r) => (
-              <div key={r.employee_id ?? 'none'} className="bar-row">
-                <span>{r.employee_name ?? 'No employee'}</span>
-                <span className="meta">{r.assigned} assigned · {r.unassigned} unassigned</span>
-                <div className="bar-track">
-                  <div className="bar-a" style={{ width: `${(r.assigned / maxEmp) * 100}%` }} />
-                  <div className="bar-u" style={{ width: `${(r.unassigned / maxEmp) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-            {isHeadOffice && (
-              <>
-                <h3 style={{ marginTop: 14 }}>By vendor</h3>
-                {summary.by_vendor.map((r) => (
-                  <div key={r.vendor_id ?? 'none'} className="bar-row">
-                    <span>{r.vendor_name ?? 'No vendor'}</span>
-                    <span className="meta">{r.assigned} assigned · {r.unassigned} unassigned</span>
-                  </div>
-                ))}
-              </>
-            )}
-            <div className="meta" style={{ marginTop: 8 }}><span style={{ color: 'var(--brand)' }}>■</span> Assigned &nbsp; <span style={{ color: 'var(--accent)' }}>■</span> Unassigned</div>
-          </Card>
-        </div>
-      )}
-
       {!rows ? <Spinner /> : rows.length === 0 ? (
         <Card><div className="muted">No activities match these filters.</div></Card>
       ) : (
