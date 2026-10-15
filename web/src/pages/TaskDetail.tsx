@@ -56,6 +56,7 @@ export function TaskDetail() {
       <Link to="/tasks" className="meta">← Tasks</Link>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '6px 0 16px', flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>{label}</h1>
+        <span className="muted" title={task.id} style={{ fontSize: 13 }}>Task ID {task.id.slice(0, 8)}</span>
         <TaskBadge task={task} />
         <span className="muted" style={{ fontSize: 14 }}>
           {age.completedInDays != null ? `completed in ${dayLabel(age.completedInDays)}` : `${dayLabel(age.ageDays)} old`}
@@ -68,7 +69,12 @@ export function TaskDetail() {
         <Card>
           <h3>Store</h3>
           <div style={{ fontWeight: 700 }}>{task.store_name ?? '—'}</div>
-          <div className="meta">{task.store_address}</div>
+          {task.store_address_1 || task.store_address_2 ? (
+            <>
+              {task.store_address_1 && <div className="meta">Address 1: {task.store_address_1}</div>}
+              {task.store_address_2 && <div className="meta">Address 2: {task.store_address_2}</div>}
+            </>
+          ) : <div className="meta">{task.store_address}</div>}
           {task.store_pincode && <div className="meta">Pincode: {task.store_pincode}</div>}
           {/* Pamphlet drops aren't tied to a store, so the employee-entered pincode is the only one. */}
           {!task.store_pincode && task.pincode && <div className="meta">Pincode: {task.pincode}</div>}
@@ -99,7 +105,7 @@ export function TaskDetail() {
             <div key={h.id} className="meta">
               {new Date(h.created_at).toLocaleString()} · {h.from_employee_name ? `${h.from_employee_name} → ` : ''}
               <b>{h.to_employee_name ?? 'unassigned'}</b>
-              {h.assigned_by_name ? ` · by ${h.assigned_by_name}` : ''}
+              {h.assigned_by_email || h.assigned_by_name ? ` · by ${h.assigned_by_email ?? h.assigned_by_name}` : ''}
               {h.note ? ` · ${h.note}` : ''}
             </div>
           ))}
@@ -221,7 +227,7 @@ export function TaskDetail() {
           {task.steps.map((step) => (
             <div key={step.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
               <div style={{ fontWeight: 700, color: 'var(--brand)' }}>{step.step_type.replace(/_/g, ' ').toUpperCase()}</div>
-              <div className="meta">{step.performed_by_name} · {new Date(step.timestamp).toLocaleString()}</div>
+              <div className="meta">{step.performed_by_name}{step.performed_by_email ? ` (${step.performed_by_email})` : ''} · {new Date(step.timestamp).toLocaleString()}</div>
               {step.approval_status && (
                 <div className="meta" style={{ color: step.approval_status === 'approved' ? 'var(--success)' : 'var(--danger)' }}>
                   {step.approval_status === 'approved' ? 'Approved' : `Rejected: ${step.rejection_reason}`}

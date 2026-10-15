@@ -168,3 +168,19 @@ textarea { min-height: 72px; resize: vertical; }
 .steps b { display: block; color: var(--text); font-size: 13px; }
 .steps .off { color: var(--muted); } .steps .off b { color: var(--muted); font-weight: 500; }
 .reject { margin: 0 14px 12px; padding: 8px 10px; background: #fdecea; color: var(--danger); border-radius: 8px; font-size: 13px; }
+
+/* ---- Task progress tracker ---- */
+.track { display: flex; flex-wrap: wrap; gap: 8px 0; padding: 4px 14px 14px; }
+.track-step { flex: 1 1 120px; position: relative; padding-top: 18px; font-size: 12px; color: var(--muted); }
+.track-step b { display: block; font-size: 13px; color: var(--muted); font-weight: 600; }
+.track-step .when { display: block; font-size: 11px; }
+.track-step .dot { position: absolute; top: 0; left: 0; width: 12px; height: 12px; border-radius: 50%; background: #dfe5ec; border: 2px solid #dfe5ec; }
+.track-step::before { content: ''; position: absolute; top: 5px; left: 14px; right: 2px; height: 2px; background: #dfe5ec; }
+.track-step:last-child::before { display: none; }
+.track-step.done .dot { background: var(--success); border-color: var(--success); }
+.track-step.done::before { background: var(--success); }
+.track-step.done b { color: var(--text); }
+.track-step.current .dot { background: #fff; border-color: var(--brand); box-shadow: 0 0 0 3px #d7e7f7; }
+.track-step.current b { color: var(--brand-dk); }
+.track-step.bad .dot { background: var(--danger); border-color: var(--danger); }
+.track-step.bad b { color: var(--danger); }

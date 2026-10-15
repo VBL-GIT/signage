@@ -198,7 +198,7 @@ export async function submitInstallation(req: AuthRequest, res: Response) {
     // `photos` is present, but re-check here too (matches the same
     // require-and-recheck pattern the mobile UI uses before calling in).
     if (!pincode?.trim()) {
-      res.status(400).json({ error: 'Pincode is required for pamphlet distribution' }); return;
+      res.status(400).json({ error: 'Pincode is required for direct installation' }); return;
     }
     const first = photos[0];
     const { rows } = await pool.query(
@@ -308,25 +308,30 @@ async function resolveFieldOutlet(
     return { ok: true, storeId: st.id, created: false, lat: Number(st.lat), long: Number(st.long), duplicates: [] };
   }
 
-  // SPEED vs Non-SPEED is the first business decision about a new outlet.
-  const cls = validateOutletClassification(body.outlet?.outlet_type, body.outlet?.speed_id);
+  // SPEED vs Non-SPEED is the first business decision about a new outlet. A SPEED
+  // outlet supplies its Customer Code (as in the store templates); a Non-SPEED one
+  // gets a placeholder FLD- code that head office replaces later.
+  const cls = validateOutletClassification(body.outlet?.outlet_type, body.outlet?.customer_code ?? body.outlet?.speed_id);
   if (!cls.ok) return fail(400, cls.error);
-  if (cls.speed_id) {
-    const { rows: same } = await client.query('SELECT id, name FROM stores WHERE lower(speed_id) = lower($1)', [cls.speed_id]);
+
+  let code = '';
+  if (cls.customer_code) {
+    const { rows: same } = await client.query(
+      'SELECT id, name FROM stores WHERE lower(customer_code) = lower($1) OR lower(uid) = lower($1)', [cls.customer_code]
+    );
     if (same.length) {
-      return fail(409, `SPEED ID ${cls.speed_id} already belongs to "${same[0].name}". Select that outlet instead.`,
+      return fail(409, `Customer Code ${cls.customer_code} already belongs to "${same[0].name}". Select that outlet instead.`,
         { duplicate_store_id: same[0].id });
     }
+    code = cls.customer_code;
+  } else {
+    for (let i = 0; i < 5; i++) {
+      const c = `FLD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+      const { rows } = await client.query('SELECT 1 FROM stores WHERE lower(customer_code) = lower($1)', [c]);
+      if (!rows.length) { code = c; break; }
+    }
+    if (!code) throw new Error('Could not generate an outlet code');
   }
-
-  // Placeholder Customer Code: unique, recognisable, replaced by head office.
-  let code = '';
-  for (let i = 0; i < 5; i++) {
-    const c = `FLD-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-    const { rows } = await client.query('SELECT 1 FROM stores WHERE lower(customer_code) = lower($1)', [c]);
-    if (!rows.length) { code = c; break; }
-  }
-  if (!code) throw new Error('Could not generate an outlet code');
 
   const { input, errors } = normalizeStoreInput({ ...body.outlet, customer_code: code, vendor_id: vendorId });
   if (errors.length) return fail(400, errors[0], { details: errors });
@@ -346,13 +351,23 @@ async function resolveFieldOutlet(
 
   // Likely duplicates are FLAGGED for head-office review, never merged or blocked.
   const duplicates = await findDuplicateCandidates(client, {
-    name: input.name, pincode: input.pincode, lat: input.lat, long: input.long, speed_id: cls.speed_id,
+    name: input.name, pincode: input.pincode, lat: input.lat, long: input.long, customer_code: cls.customer_code,
   }, vendorId);
 
   const { store } = await upsertStore(client, input, null);
+  // Address 1 / Address 2 are kept as the template's ADDR_1 / ADDR_2 so they can be
+  // shown separately when the outlet is opened.
+  const outletRaw = (body.outlet ?? {}) as Record<string, unknown>;
+  const addr: Record<string, string> = {};
+  const a1 = String(outletRaw.ADDR_1 ?? outletRaw.address ?? '').trim();
+  const a2 = String(outletRaw.ADDR_2 ?? '').trim();
+  if (a1) addr.ADDR_1 = a1;
+  if (a2) addr.ADDR_2 = a2;
   await client.query(
-    `UPDATE stores SET is_field_added = true, added_by = $2, is_speed = $3, speed_id = $4, duplicate_candidates = $5 WHERE id = $1`,
-    [store.id, userId, cls.is_speed, cls.speed_id, duplicates.length ? JSON.stringify(duplicates) : null]
+    `UPDATE stores SET is_field_added = true, added_by = $2, is_speed = $3, duplicate_candidates = $4,
+            source_metadata = COALESCE(source_metadata, '{}'::jsonb) || $5::jsonb
+      WHERE id = $1`,
+    [store.id, userId, cls.is_speed, duplicates.length ? JSON.stringify(duplicates) : null, JSON.stringify(addr)]
   );
   return { ok: true, storeId: store.id as string, created: true, lat: input.lat, long: input.long, duplicates };
 }

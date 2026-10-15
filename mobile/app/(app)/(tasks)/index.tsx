@@ -91,7 +91,7 @@ export default function TasksScreen() {
     return tasks.filter((t) =>
       tabOf(t.status) === tab &&
       matchesType(t) &&
-      (!q || (t.store_name ?? '').toLowerCase().includes(q))
+      (!q || (t.store_name ?? '').toLowerCase().includes(q) || t.id.toLowerCase().startsWith(q.replace(/^#/, '')))
     );
   }, [tasks, tab, query, typeFilter]);
 
@@ -116,7 +116,7 @@ export default function TasksScreen() {
         style={styles.search}
         value={query}
         onChangeText={setQuery}
-        placeholder="Search by store name…"
+        placeholder="Search by store name or Task ID…"
         placeholderTextColor={colors.textMuted}
       />
       <View style={styles.typeRow}>

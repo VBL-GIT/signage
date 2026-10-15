@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
 import { listVendors, createVendor, updateVendor, setVendorActive } from '../controllers/vendors.controller';
 
 const router = Router();
 router.use(authenticate);
+router.use(auditTrail);
 
 router.get('/', requireRole('rjcorp_admin', 'rjcorp_user'), listVendors as any);
 

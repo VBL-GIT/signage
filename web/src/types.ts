@@ -71,7 +71,6 @@ export interface Store {
   is_field_added?: boolean;
   /** null = not recorded (every master-imported outlet). */
   is_speed?: boolean | null;
-  speed_id?: string | null;
   /** Possible duplicates flagged at capture time, for head-office review. */
   duplicate_candidates?: { store_id: string; name: string; reasons: string[] }[] | null;
   reference_image_url?: string | null;
@@ -91,7 +90,7 @@ export interface TaskStepPhoto {
 }
 
 export interface TaskStep {
-  id: string; step_type: string; performed_by_name: string; timestamp: string;
+  id: string; step_type: string; performed_by_name: string; performed_by_email?: string; timestamp: string;
   lat: number | null; long: number | null; notes: string | null;
   photos: TaskStepPhoto[];
   approval_status: string | null; rejection_reason: string | null; pamphlet_count: number | null;
@@ -110,10 +109,12 @@ export interface SignagePlanItem {
 
 export interface AssignmentEvent {
   id: string; created_at: string; task_status: string | null; note: string | null;
-  from_employee_name: string | null; to_employee_name: string | null; assigned_by_name: string | null;
+  from_employee_name: string | null; to_employee_name: string | null; assigned_by_name: string | null; assigned_by_email?: string | null;
 }
 
 export interface Task {
+  store_address_1?: string | null;
+  store_address_2?: string | null;
   is_field_initiated?: boolean;
   /** Persisted Assigned/Unassigned classification. */
   activity_origin?: 'ASSIGNED' | 'UNASSIGNED';

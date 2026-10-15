@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
 import { listBrands, createBrand, listBoardingSizes, listUsers, createUser, updateUser, setUserActive, setUserRole, deleteEmployee, getUserPassword, setUserPassword } from '../controllers/reference.controller';
 
 const router = Router();
 router.use(authenticate);
+router.use(auditTrail);
 
 router.get('/brands', listBrands as any);
 router.post('/brands',

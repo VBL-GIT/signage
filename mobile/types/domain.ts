@@ -149,6 +149,8 @@ export interface Task {
   store_id: string | null;
   store_name: string | null;
   store_address: string | null;
+  store_address_1?: string | null;
+  store_address_2?: string | null;
   store_lat: number | null;
   store_long: number | null;
   store_uid: string | null;

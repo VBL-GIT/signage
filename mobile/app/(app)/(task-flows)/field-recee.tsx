@@ -39,7 +39,7 @@ export default function FieldReceeScreen() {
 
 /** One outlet in a list: name, address, identifiers and distance, so same-name outlets can be told apart. */
 function OutletRow({ o, onPick }: { o: NearbyStore; onPick: () => void }) {
-  const ids = [o.speed_id ? `SPEED ${o.speed_id}` : null, o.customer_code ? `Code ${o.customer_code}` : null].filter(Boolean).join(' · ');
+  const ids = o.customer_code ? `Customer Code ${o.customer_code}` : '';
   return (
     <TouchableOpacity style={styles.result} onPress={onPick}>
       {o.reference_image_url ? <Image source={{ uri: o.reference_image_url }} style={styles.thumb} /> : null}
@@ -74,11 +74,12 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const [artworkId, setArtworkId] = useState<string | null>(null);
 
   const [outletType, setOutletType] = useState<'speed' | 'non_speed' | null>(null);
-  const [speedId, setSpeedId] = useState('');
+  const [customerCode, setCustomerCode] = useState('');
   const [search, setSearch] = useState('');
   const [found, setFound] = useState<NearbyStore[]>([]);
   const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState('');        // Address 1
+  const [address2, setAddress2] = useState('');      // Address 2
   const [pincode, setPincode] = useState('');
   const [contactPerson, setContactPerson] = useState('');
   const [contactNo, setContactNo] = useState('');
@@ -95,7 +96,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const [requestId] = useState(() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 10)}`);
 
   type FieldDraft = {
-    mode?: Mode; artworkId?: string | null; outletType?: 'speed' | 'non_speed' | null; speedId?: string;
+    mode?: Mode; artworkId?: string | null; outletType?: 'speed' | 'non_speed' | null; customerCode?: string; speedId?: string; address2?: string;
     requestId: string; coords: Coords | null; existing: NearbyStore | null; brandId: string | null;
     name: string; address: string; pincode: string; contactPerson: string; contactNo: string;
     contactEmail: string; channel: string; subChannel: string; state: string; notes: string;
@@ -104,16 +105,16 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   const requestIdRef = useRef(requestId);
   const draft = useDraft<FieldDraft>(
     userId ? `${userId}_field-recee` : null,
-    { mode, artworkId, outletType, speedId, requestId: requestIdRef.current, coords, existing, brandId, name, address, pincode, contactPerson, contactNo,
+    { mode, artworkId, outletType, customerCode, address2, requestId: requestIdRef.current, coords, existing, brandId, name, address, pincode, contactPerson, contactNo,
       contactEmail, channel, subChannel, state, notes, signages },
     {
       isEmpty: (d) => !d.name && !d.address && !d.pincode && !d.existing && !d.notes && !d.contactPerson &&
-        !d.contactNo && !d.contactEmail && !d.channel && !d.subChannel && !d.state && !d.brandId && !d.artworkId && d.mode !== 'install' && !d.outletType && !d.speedId &&
+        !d.contactNo && !d.contactEmail && !d.channel && !d.subChannel && !d.state && !d.brandId && !d.artworkId && d.mode !== 'install' && !d.outletType && !d.customerCode && !d.address2 &&
         d.signages.every((x) => !x.uri && !x.signage_type),
       onRestore: async (d) => {
         requestIdRef.current = d.requestId || requestIdRef.current;
         setMode(d.mode ?? 'recee'); setArtworkId(d.artworkId ?? null);
-        setOutletType(d.outletType ?? null); setSpeedId(d.speedId ?? '');
+        setOutletType(d.outletType ?? null); setCustomerCode(d.customerCode ?? d.speedId ?? ''); setAddress2(d.address2 ?? '');
         setCoords(d.coords); setExisting(d.existing); setBrandId(d.brandId);
         setName(d.name); setAddress(d.address); setPincode(d.pincode);
         setContactPerson(d.contactPerson); setContactNo(d.contactNo); setContactEmail(d.contactEmail);
@@ -172,7 +173,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
     return () => clearTimeout(t);
   }, [coords, name, existing]);
 
-  // Explicit outlet search: by name, address, SPEED ID or Customer Code, so outlets
+  // Explicit outlet search: by name, address or Customer Code, so outlets
   // that share a name can be told apart before one is picked.
   useEffect(() => {
     const q = search.trim();
@@ -190,10 +191,10 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
   async function handleSubmit() {
     if (!existing) {
       if (!outletType) { Alert.alert('Required', 'First choose: is this a SPEED or a Non-SPEED outlet?'); return; }
-      if (outletType === 'speed' && !speedId.trim()) { Alert.alert('Required', 'Enter the SPEED ID for this SPEED outlet'); return; }
+      if (outletType === 'speed' && !customerCode.trim()) { Alert.alert('Required', 'Enter the Customer Code for this SPEED outlet'); return; }
       if (!coords) { Alert.alert('Location needed', 'Waiting for your GPS location. Make sure location is on.'); return; }
       if (!name.trim()) { Alert.alert('Required', 'Enter the outlet name'); return; }
-      if (!address.trim()) { Alert.alert('Required', 'Enter the outlet address'); return; }
+      if (!address.trim()) { Alert.alert('Required', 'Enter Address 1 of the outlet'); return; }
       if (!pincode.trim()) { Alert.alert('Required', 'Enter the pincode'); return; }
     }
     if (mode === 'install' && !brandId) { Alert.alert('Required', 'Select the brand that was installed'); return; }
@@ -235,8 +236,8 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
             ...base,
             outlet: {
               outlet_type: outletType!,
-              speed_id: outletType === 'speed' ? speedId.trim() : undefined,
-              name: name.trim(), address: address.trim(), pincode: pincode.trim(),
+              customer_code: outletType === 'speed' ? customerCode.trim() : undefined,
+              name: name.trim(), ADDR_1: address.trim(), ADDR_2: opt(address2), pincode: pincode.trim(),
               lat: coords!.lat, long: coords!.long,
               contact_person: opt(contactPerson), contact_no: opt(contactNo), contact_email: opt(contactEmail),
               CHANNEL: opt(channel), SUB_CHANNEL: opt(subChannel), STATE_CD: opt(state),
@@ -254,7 +255,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
     } catch (e: unknown) {
       const data = (e as { response?: { status?: number; data?: { duplicate_store_id?: string; error?: string } } })?.response;
       if (data?.status === 409 && data.data?.duplicate_store_id) {
-        const isSpeedClash = /SPEED ID/.test(data.data.error ?? '');
+        const isSpeedClash = /Customer Code/.test(data.data.error ?? '');
         Alert.alert(
           'This outlet may already exist',
           data.data.error ?? 'A matching outlet already exists.',
@@ -299,7 +300,7 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
           <>
             <Text style={styles.label}>Search an existing outlet first</Text>
             <TextInput style={styles.input1} value={search} onChangeText={setSearch}
-              placeholder="Name, address, SPEED ID or Customer Code" placeholderTextColor={colors.textMuted} />
+              placeholder="Name, address or Customer Code" placeholderTextColor={colors.textMuted} />
             {found.map((o) => (
               <OutletRow key={o.id} o={o} onPick={() => { setExisting(o); setSearch(''); setFound([]); }} />
             ))}
@@ -355,14 +356,15 @@ function FieldRecee({ onDone }: { onDone: () => void }) {
               ))}
             </View>
             {outletType === 'speed' && (
-              <Field label="SPEED ID *" value={speedId} onChangeText={setSpeedId} autoCapitalize="characters" />
+              <Field label="Customer Code *" value={customerCode} onChangeText={setCustomerCode} autoCapitalize="characters" />
             )}
 
             <Text style={locating || coords ? styles.gps : styles.gpsBad}>
               {coords ? `Location captured (${coords.lat.toFixed(5)}, ${coords.long.toFixed(5)})` : locating ? 'Getting your location…' : 'Location not available'}
             </Text>
             <Field label="Outlet name *" value={name} onChangeText={setName} autoCapitalize="words" />
-            <Field label="Address *" value={address} onChangeText={setAddress} autoCapitalize="words" />
+            <Field label="Address 1 *" value={address} onChangeText={setAddress} autoCapitalize="words" />
+            <Field label="Address 2" value={address2} onChangeText={setAddress2} autoCapitalize="words" />
             <Field label="Pincode *" value={pincode} onChangeText={setPincode} keyboardType="number-pad" />
             <Field label="Contact person" value={contactPerson} onChangeText={setContactPerson} autoCapitalize="words" />
             <Field label="Contact phone" value={contactNo} onChangeText={setContactNo} keyboardType="phone-pad" />

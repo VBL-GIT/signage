@@ -9,6 +9,7 @@ import { Pager } from '../components/Pager';
 import { taskAge, dayLabel } from '../lib/taskAge';
 
 import { taskTypeLabel } from '../lib/taskLabels';
+import { TaskLookup } from '../components/TaskLookup';
 
 const PAGE_SIZE = 20;
 
@@ -54,6 +55,7 @@ export function Tasks() {
         <h1>Tasks</h1>
         <DownloadReportButton label="Download report" filenamePrefix={filenamePrefix} fetcher={() => downloadTasksReport(filter)} />
       </div>
+      <TaskLookup />
       {isRjcorp
         ? <JobsView tasks={tasks} navigate={navigate} onFilterChange={setFilter} />
         : <FlatView tasks={tasks} navigate={navigate} onFilterChange={setFilter} />}

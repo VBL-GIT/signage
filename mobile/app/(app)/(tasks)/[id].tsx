@@ -80,7 +80,13 @@ export default function TaskDetailScreen() {
           })()}
         </View>
         {task.store_name && <Text style={styles.store}>{task.store_name}</Text>}
-        {task.store_address && <Text style={styles.address}>{task.store_address}</Text>}
+        {(task.store_address_1 || task.store_address_2) ? (
+          <>
+            {task.store_address_1 ? <Text style={styles.address}>Address 1: {task.store_address_1}</Text> : null}
+            {task.store_address_2 ? <Text style={styles.address}>Address 2: {task.store_address_2}</Text> : null}
+          </>
+        ) : task.store_address ? <Text style={styles.address}>{task.store_address}</Text> : null}
+        <Text style={styles.address}>Task ID: {task.id.slice(0, 8)}</Text>
         {task.store_pincode && <Text style={styles.meta}>Pincode: {task.store_pincode}</Text>}
         {task.store_uid && <Text style={styles.meta}>Customer Code: {task.store_uid}</Text>}
         {task.brand_name && <Text style={styles.meta}>Brand: {task.brand_name}</Text>}

@@ -43,11 +43,13 @@ export async function submitRecee(taskId: string, body: {
 }
 
 export interface FieldOutletPayload {
-  /** First decision for a new outlet. SPEED needs speed_id. */
+  /** First decision for a new outlet. SPEED needs its Customer Code. */
   outlet_type: 'speed' | 'non_speed';
-  speed_id?: string;
+  customer_code?: string;
   name: string;
-  address: string;
+  /** Address 1 (required) and Address 2, as in the store template. */
+  ADDR_1: string;
+  ADDR_2?: string;
   pincode: string;
   lat: number;
   long: number;

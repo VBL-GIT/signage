@@ -30,7 +30,7 @@ export function TaskCard({ task, onPress, hasDraft }: Props) {
         {task.store_name && <Text style={styles.store}>{task.store_name}</Text>}
         {task.store_address && <Text style={styles.address} numberOfLines={1}>{task.store_address}</Text>}
         {task.brand_name && <Text style={styles.meta}>Brand: {task.brand_name}</Text>}
-        <Text style={styles.date}>{new Date(task.created_at).toLocaleDateString()}</Text>
+        <Text style={styles.date}>{new Date(task.created_at).toLocaleDateString()} · #{task.id.slice(0, 8)}</Text>
       </Card>
     </TouchableOpacity>
   );

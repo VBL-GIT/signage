@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
-import { listTasks, getTask, createTask, assignTask, assignBulk, deleteTask } from '../controllers/tasks.controller';
+import { listTasks, lookupTasks, getTask, createTask, assignTask, assignBulk, deleteTask } from '../controllers/tasks.controller';
 import {
   createFieldRecee,
   createFieldInstall,
@@ -15,6 +16,7 @@ import {
 
 const router = Router();
 router.use(authenticate);
+router.use(auditTrail);
 
 const SIGNAGE_TYPES = ['nonlit', 'glow_sign_board', 'impact'] as const;
 
@@ -63,6 +65,8 @@ router.post('/assign-bulk', requirePrivilege('task.assign'), validate(z.object({
   employee_id: z.string().uuid(),
 })), assignBulk as any);
 
+// Track a task's progress by ID (or its first characters). Before '/:id'.
+router.get('/lookup', lookupTasks as any);
 router.get('/:id', getTask as any);
 router.post('/', requirePrivilege('task.create'), validate(z.object({
   task_type: z.enum(['recee', 'installation']),
@@ -89,11 +93,15 @@ router.post('/:id/assign', requirePrivilege('task.assign'), validate(z.object({
 router.delete('/:id', requirePrivilege('task.delete'), deleteTask as any);
 
 const fieldOutletSchema = z.object({
-  // First business decision. SPEED requires a SPEED ID (checked in the controller).
+  // First business decision. SPEED requires the outlet's Customer Code (checked in the controller).
   outlet_type: z.enum(['speed', 'non_speed']),
-  speed_id: z.string().max(50).optional(),
+  customer_code: z.string().max(50).optional(),
+  speed_id: z.string().max(50).optional(), // legacy alias of customer_code from older app builds
   name: z.string().min(1),
-  address: z.string().min(1),
+  // Address 1 is required (the controller reports it by name); Address 2 is optional.
+  ADDR_1: z.string().optional(),
+  ADDR_2: z.string().optional(),
+  address: z.string().optional(),
   pincode: z.string().min(1),
   lat: z.number(),
   long: z.number(),

@@ -20,7 +20,7 @@ export async function listPasswordRequests(req: AuthRequest, res: Response) {
   const { rows } = await pool.query(
     `SELECT pr.id, pr.status, pr.created_at, pr.resolved_at, pr.entered_name, pr.entered_mobile,
             u.id AS user_id, u.name, u.email, u.role, u.phone AS mobile, v.name AS vendor_name,
-            rb.name AS resolved_by_name
+            rb.name AS resolved_by_name, rb.email AS resolved_by_email
        FROM password_requests pr
        JOIN users u ON u.id = pr.user_id
        LEFT JOIN vendors v ON v.id = u.vendor_id

@@ -434,8 +434,8 @@ export async function bulkTasks(req: AuthRequest, res: Response) {
       // pincode and a target count. customer_code stays optional there — that
       // work need not correspond to a single store.
       if (installationType === 'direct') {
-        if (!str(col('PINCODE'))) throw new Error('PINCODE is required for pamphlet distribution');
-        if (!str(col('TARGET_PAMPHLET_COUNT'))) throw new Error('TARGET_PAMPHLET_COUNT is required for pamphlet distribution');
+        if (!str(col('PINCODE'))) throw new Error('PINCODE is required for direct installation');
+        if (!str(col('TARGET_PAMPHLET_COUNT'))) throw new Error('TARGET_PAMPHLET_COUNT is required for direct installation');
       }
       const tpcStr = installationType === 'direct' ? str(col('TARGET_PAMPHLET_COUNT')) : '';
       const tpc = tpcStr ? parseInt(tpcStr, 10) : null;

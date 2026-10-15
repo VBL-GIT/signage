@@ -78,7 +78,7 @@ export function PasswordRequests() {
                 </div>
                 {r.status !== 'pending' && (
                   <div className="meta">{r.status === 'resolved' ? 'Password set' : 'Dismissed'}
-                    {r.resolved_at ? ` ${new Date(r.resolved_at).toLocaleString()}` : ''}{r.resolved_by_name ? ` by ${r.resolved_by_name}` : ''}</div>
+                    {r.resolved_at ? ` ${new Date(r.resolved_at).toLocaleString()}` : ''}{r.resolved_by_email || r.resolved_by_name ? ` by ${r.resolved_by_email ?? r.resolved_by_name}` : ''}</div>
                 )}
               </div>
               {r.status === 'pending' && (

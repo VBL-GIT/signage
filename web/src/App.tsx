@@ -3,6 +3,8 @@ import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ActivityReport } from './pages/ActivityReport';
+import { RolesPermissions } from './pages/RolesPermissions';
+import { AuditLog } from './pages/AuditLog';
 import { PasswordRequests } from './pages/PasswordRequests';
 import { Tasks } from './pages/Tasks';
 import { TaskDetail } from './pages/TaskDetail';
@@ -36,6 +38,8 @@ export default function App() {
         <Route path="/bulk" element={<BulkUpload />} />
         <Route path="/manage" element={<Manage />} />
         <Route path="/reports" element={<ActivityReport />} />
+        <Route path="/access" element={<RolesPermissions />} />
+        <Route path="/audit" element={<AuditLog />} />
         <Route path="/password-requests" element={<PasswordRequests />} />
       </Route>
       <Route path="*" element={<Navigate to="/tasks" replace />} />

@@ -65,8 +65,10 @@ export function Layout() {
         {showManage && link('/manage', 'Manage')}
         {canHandlePasswords && link('/password-requests', pendingPw ? `Password requests (${pendingPw})` : 'Password requests')}
         {isRjcorp && link('/images', 'Images')}
+        {user.role === 'rjcorp_admin' && link('/access', 'Roles & Permissions')}
+        {user.role === 'rjcorp_admin' && link('/audit', 'Audit Log')}
         <div className="spacer" />
-        <div className="who">{user.name}<br /><span className="muted">{ROLE_LABELS[user.role]}</span></div>
+        <div className="who">{user.name}<br /><span className="muted" style={{ wordBreak: 'break-all' }}>{user.email}</span><br /><span className="muted">{ROLE_LABELS[user.role]}</span></div>
         <Button variant="ghost" size="sm" onClick={async () => { await logout(); navigate('/login'); }}>Log out</Button>
       </nav>
       <main className="main">

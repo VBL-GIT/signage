@@ -73,28 +73,29 @@ console.log('\n== report filters: validation and construction ==');
   check('no filters on head office yields a valid clause', placeholdersMatch(build({})));
 }
 
-console.log('\n== SPEED vs Non-SPEED ==');
+console.log('\n== SPEED vs Non-SPEED (a SPEED outlet supplies its Customer Code) ==');
 {
-  const ok = validateOutletClassification('speed', ' SP-1234 ');
-  check('SPEED with an ID is accepted and trimmed', ok.ok && ok.is_speed && ok.speed_id === 'SP-1234');
-  check('SPEED without an ID is rejected', !validateOutletClassification('speed', '').ok);
-  check('SPEED with blank-space ID is rejected', !validateOutletClassification('speed', '   ').ok);
-  check('SPEED with implausible ID is rejected', !validateOutletClassification('speed', 'a b').ok);
+  const ok = validateOutletClassification('speed', ' ACC123 ');
+  check('SPEED with a Customer Code is accepted and trimmed', ok.ok && ok.is_speed && ok.customer_code === 'ACC123');
+  check('SPEED without a Customer Code is rejected', !validateOutletClassification('speed', '').ok);
+  check('SPEED with a blank-space code is rejected', !validateOutletClassification('speed', '   ').ok);
+  check('SPEED with an implausible code is rejected', !validateOutletClassification('speed', 'a b').ok);
+  check('SPEED error names Customer Code, not SPEED ID', (() => { const r = validateOutletClassification('speed', ''); return !r.ok && /Customer Code/.test(r.error) && !/SPEED ID/.test(r.error); })());
   const ns = validateOutletClassification('non_speed', undefined);
-  check('Non-SPEED needs no ID', ns.ok && !ns.is_speed && ns.speed_id === null);
-  const ns2 = validateOutletClassification('non_speed', 'SP-9');
-  check('Non-SPEED discards a stray ID so data cannot contradict the type', ns2.ok && ns2.speed_id === null);
-  check('missing classification is rejected', !validateOutletClassification(undefined, 'SP-1').ok);
-  check('unknown classification is rejected', !validateOutletClassification('maybe', 'SP-1').ok);
+  check('Non-SPEED needs no code', ns.ok && !ns.is_speed && ns.customer_code === null);
+  const ns2 = validateOutletClassification('non_speed', 'ACC9');
+  check('Non-SPEED discards a stray code so data cannot contradict the type', ns2.ok && ns2.customer_code === null);
+  check('missing classification is rejected', !validateOutletClassification(undefined, 'ACC1').ok);
+  check('unknown classification is rejected', !validateOutletClassification('maybe', 'ACC1').ok);
 }
 
 console.log('\n== duplicate flagging (flag only, never merge) ==');
 {
-  const probe = { name: 'Sharma Store', pincode: '560001', lat: 12.9, long: 77.5, speed_id: 'SP-1' };
-  const other = (o: Partial<{ name: string; pincode: string; speed_id: string | null; distance_m: number | null }>) =>
-    ({ name: 'Other', pincode: '560002', speed_id: null, distance_m: 5000, ...o });
+  const probe = { name: 'Sharma Store', pincode: '560001', lat: 12.9, long: 77.5, customer_code: 'ACC1' };
+  const other = (o: Partial<{ name: string; pincode: string; customer_code: string | null; distance_m: number | null }>) =>
+    ({ name: 'Other', pincode: '560002', customer_code: null, distance_m: 5000, ...o });
   check('default radius is 150 m', DUPLICATE_RADIUS_M === 150);
-  check('same SPEED ID is flagged', duplicateReasons(probe, other({ speed_id: 'sp-1' })).includes('same SPEED ID'));
+  check('same Customer Code is flagged', duplicateReasons(probe, other({ customer_code: 'acc1' })).includes('same Customer Code'));
   check('same name + pincode is flagged', duplicateReasons(probe, other({ name: 'sharma store', pincode: '560001' })).includes('same name and pincode'));
   check('nearby outlet is flagged', duplicateReasons(probe, other({ distance_m: 80 })).some((r) => r.startsWith('within')));
   check('outlet just outside the radius is not flagged', duplicateReasons(probe, other({ distance_m: 151 })).length === 0);
@@ -109,7 +110,8 @@ console.log('\n== export rows: blanks stay blank, origin is explicit ==');
     outlet_type: 'not_recorded', assignments: 1, submission_attempts: 0, photo_count: 0,
   });
   check('unassigned recee is labelled', row['Activity Type'] === 'Unassigned Recee' && row['Activity Origin'] === 'Unassigned');
-  check('missing values are blank, not invented', row['Completed'] === '' && row['SPEED ID'] === '' && row['Brand'] === '');
+  check('missing values are blank, not invented', row['Completed'] === '' && row['Customer Code'] === '' && row['Brand'] === '');
+  check('the report no longer carries a SPEED ID column', !('SPEED ID' in row));
   check('legacy outlets read "Not recorded"', row['Outlet Type'] === 'Not recorded');
   const re = toExportRow({ activity_type: 'recee', activity_origin: 'ASSIGNED', outlet_type: 'speed', assignments: 3, submission_attempts: 2, photo_count: 4 });
   check('assigned recee is labelled', re['Activity Type'] === 'Assigned Recee');

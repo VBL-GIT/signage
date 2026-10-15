@@ -294,7 +294,7 @@ export interface PasswordRequest {
   created_at: string; resolved_at: string | null;
   entered_name: string | null; entered_mobile: string | null;
   user_id: string; name: string; email: string; role: UserRole; mobile: string | null;
-  vendor_name: string | null; resolved_by_name: string | null;
+  vendor_name: string | null; resolved_by_name: string | null; resolved_by_email?: string | null;
 }
 export async function getPasswordRequests(status: 'pending' | 'all' = 'pending') {
   const { data } = await api.get('/api/password-requests', { params: { status } });
@@ -327,7 +327,7 @@ export interface ActivityRow {
   activity_id: string; activity_type: string; activity_origin: 'ASSIGNED' | 'UNASSIGNED'; status: string;
   created_at: string | null; submitted_at: string | null; reviewed_at: string | null; completed_at: string | null;
   outlet_id: string | null; customer_code: string | null; store_uid: string | null;
-  outlet_type: 'speed' | 'non_speed' | 'not_recorded'; speed_id: string | null;
+  outlet_type: 'speed' | 'non_speed' | 'not_recorded';
   outlet_name: string | null; outlet_address: string | null; new_outlet: boolean | null;
   vendor_name: string | null; employee_name: string | null; created_by_name: string | null;
   assigned_by_name: string | null; original_employee_name: string | null; assignments: number;
@@ -357,3 +357,50 @@ export async function getActivitySummary(f: ActivityFilters) {
   return data as ActivitySummary;
 }
 export const downloadActivityReport = (f: ActivityFilters) => downloadReport('/api/reports/activities/export', clean(f));
+
+// ---- roles & permissions overview + audit log (RJ admin only)
+export interface AccessAccount {
+  id: string; name: string; email: string; active: boolean; vendor?: string | null;
+  custom_role?: string | null; privileges?: string[];
+}
+export interface AccessOverview {
+  privileges: { key: string; label: string; admin_only: boolean }[];
+  base_roles: {
+    key: string; label: string; scope: string; description: string;
+    privileges: string[] | null; users: AccessAccount[];
+  }[];
+  custom_roles: { id: string; name: string; privileges: string[]; users: AccessAccount[] }[];
+}
+export async function getAccessOverview() {
+  const { data } = await api.get('/api/access/overview');
+  return data as AccessOverview;
+}
+export interface AuditEntry {
+  id: string; created_at: string; actor_email: string; actor_name: string | null; actor_role: string | null;
+  action: string; description: string; entity_type: string | null; entity_id: string | null;
+  entity_label: string | null; details: Record<string, unknown> | null;
+}
+export interface AuditFilters { actor?: string; entity_type?: string; date_from?: string; date_to?: string; q?: string }
+export async function getAudit(f: AuditFilters, page: number, page_size = 50) {
+  const params = { ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)), page, page_size };
+  const { data } = await api.get('/api/access/audit', { params });
+  return data as { page: number; page_size: number; total: number; rows: AuditEntry[] };
+}
+export async function getAuditActors() {
+  const { data } = await api.get('/api/access/audit/actors');
+  return data as { actor_email: string; actor_name: string | null; actor_role: string | null; changes: number }[];
+}
+
+// ---- task lookup by ID
+export interface TaskLookupRow {
+  id: string; task_type: 'recee' | 'installation'; installation_type: Task['installation_type']; status: string;
+  activity_origin: 'ASSIGNED' | 'UNASSIGNED'; parent_task_id: string | null;
+  created_at: string; updated_at: string; completed_at: string | null;
+  store_name: string | null; store_address: string | null; employee_name: string | null; vendor_name: string | null;
+  first_submitted: string | null; reviewed_at: string | null; approval_status: string | null; rejection_reason: string | null;
+  child_id: string | null; child_status: string | null; child_completed_at: string | null;
+}
+export async function lookupTasks(q: string) {
+  const { data } = await api.get('/api/tasks/lookup', { params: { q } });
+  return data as TaskLookupRow[];
+}

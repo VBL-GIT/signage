@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
 import { listArtworks, createArtwork, updateArtwork } from '../controllers/artworks.controller';
 
 const router = Router();
 router.use(authenticate);
+router.use(auditTrail);
 
 router.get('/', listArtworks as any);
 

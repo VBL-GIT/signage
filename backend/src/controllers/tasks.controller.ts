@@ -65,6 +65,45 @@ export async function listTasks(req: AuthRequest, res: Response) {
   res.json(rows);
 }
 
+/**
+ * Find a task by its ID (or the first few characters of it) and report how far it
+ * has got. Scoped exactly like the task list: employees see their own tasks,
+ * vendor roles their vendor's, head office everything.
+ */
+export async function lookupTasks(req: AuthRequest, res: Response) {
+  const user = req.user!;
+  const q = String(req.query.q ?? '').trim().toLowerCase().replace(/^#/, '');
+  if (!/^[0-9a-f-]{4,36}$/.test(q)) {
+    res.status(400).json({ error: 'Enter at least 4 characters of the Task ID (letters a–f and numbers)' }); return;
+  }
+  const params: unknown[] = [`${q}%`];
+  let scope = '';
+  if (user.role === 'employee') { params.push(user.id); scope = `AND t.employee_id = $2`; }
+  else if (user.role === 'vendor_admin' || user.role === 'vendor_user') { params.push(user.vendor_id); scope = `AND t.vendor_id = $2`; }
+
+  const { rows } = await pool.query(
+    `SELECT t.id, t.task_type, t.installation_type, t.status, t.activity_origin, t.parent_task_id,
+            t.created_at, t.updated_at, t.completed_at,
+            s.name AS store_name, s.address AS store_address, e.name AS employee_name, v.name AS vendor_name,
+            sub.first_submitted, ap.at AS reviewed_at, ap.approval_status, ap.rejection_reason,
+            child.id AS child_id, child.status AS child_status, child.completed_at AS child_completed_at
+       FROM tasks t
+       LEFT JOIN stores s ON s.id = t.store_id
+       LEFT JOIN users e ON e.id = t.employee_id
+       LEFT JOIN vendors v ON v.id = t.vendor_id
+       LEFT JOIN LATERAL (SELECT MIN(ts.timestamp) AS first_submitted FROM task_steps ts
+                           WHERE ts.task_id = t.id AND ts.step_type IN ('recee', 'installation', 'pamphlet_drop')) sub ON true
+       LEFT JOIN LATERAL (SELECT ts.timestamp AS at, ts.approval_status, ts.rejection_reason FROM task_steps ts
+                           WHERE ts.task_id = t.id AND ts.step_type = 'approval' ORDER BY ts.timestamp DESC LIMIT 1) ap ON true
+       LEFT JOIN LATERAL (SELECT c.id, c.status, c.completed_at FROM tasks c
+                           WHERE c.parent_task_id = t.id AND c.status <> 'cancelled' ORDER BY c.created_at DESC LIMIT 1) child ON true
+      WHERE t.id::text LIKE $1 ${scope}
+      ORDER BY t.created_at DESC LIMIT 10`,
+    params
+  );
+  res.json(rows);
+}
+
 export async function getTask(req: AuthRequest, res: Response) {
   const task = await getTaskById(req.params.id as string);
   if (!task) { res.status(404).json({ error: 'Task not found' }); return; }

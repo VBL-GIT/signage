@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
 import { listNearbyStores, listStores, getStore, createStore, updateStore, assignEmployee, removeAssignment } from '../controllers/stores.controller';
@@ -14,6 +15,7 @@ const router = Router();
 const coord = z.union([z.number(), z.string().min(1)]);
 
 router.use(authenticate);
+router.use(auditTrail);
 router.get('/', listStores as any);
 // Employee duplicate check for the field-recee flow. Before '/:id'.
 router.get('/nearby', requireRole('employee'), listNearbyStores as any);

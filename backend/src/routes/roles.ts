@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
 import { listRoles, createRole, updateRole, listPrivilegeCatalog } from '../controllers/roles.controller';
 
 const router = Router();
 router.use(authenticate);
+router.use(auditTrail);
 
 // The privilege catalog is readable by anyone who can manage roles (to build the picker).
 router.get('/privileges', requirePrivilege('role.manage'), listPrivilegeCatalog as any);

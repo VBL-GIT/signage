@@ -35,7 +35,7 @@ export async function recordAssignment(
 export async function getAssignmentHistory(taskId: string) {
   const { rows } = await pool.query(
     `SELECT h.id, h.created_at, h.task_status, h.note,
-            fe.name AS from_employee_name, te.name AS to_employee_name, ab.name AS assigned_by_name
+            fe.name AS from_employee_name, te.name AS to_employee_name, ab.name AS assigned_by_name, ab.email AS assigned_by_email
        FROM task_assignment_history h
        LEFT JOIN users fe ON fe.id = h.from_employee_id
        LEFT JOIN users te ON te.id = h.to_employee_id
@@ -52,6 +52,7 @@ export async function getTaskById(taskId: string) {
        s.name as store_name, s.address as store_address, s.lat as store_lat, s.long as store_long,
        COALESCE(s.customer_code, s.uid) as store_uid, s.contact_no as store_contact_no, s.pincode as store_pincode,
        s.contact_email as store_contact_email, s.contact_person as store_contact_person,
+       COALESCE(addr.address_1, s.address) as store_address_1, addr.address_2 as store_address_2,
        b.name as brand_name,
        a.name as artwork_name, a.image_url as artwork_image_url,
        sbs.label as boarding_size_label,
@@ -59,6 +60,15 @@ export async function getTaskById(taskId: string) {
        sup.name as supervisor_name
      FROM tasks t
      LEFT JOIN stores s ON s.id = t.store_id
+     -- Address 1 / Address 2 as the store template spells them (ADDR_1, ADDR_2),
+     -- matched case/punctuation-insensitively; absent for stores without them.
+     LEFT JOIN LATERAL (
+       SELECT
+         (SELECT NULLIF(btrim(j.value), '') FROM jsonb_each_text(COALESCE(s.source_metadata, '{}'::jsonb)) j
+           WHERE regexp_replace(upper(j.key), '[^A-Z0-9]', '', 'g') = 'ADDR1' AND NULLIF(btrim(j.value), '') IS NOT NULL LIMIT 1) AS address_1,
+         (SELECT NULLIF(btrim(j.value), '') FROM jsonb_each_text(COALESCE(s.source_metadata, '{}'::jsonb)) j
+           WHERE regexp_replace(upper(j.key), '[^A-Z0-9]', '', 'g') = 'ADDR2' AND NULLIF(btrim(j.value), '') IS NOT NULL LIMIT 1) AS address_2
+     ) addr ON true
      LEFT JOIN brands b ON b.id = t.brand_id
      LEFT JOIN artworks a ON a.id = t.artwork_id
      LEFT JOIN standard_boarding_sizes sbs ON sbs.id = t.boarding_size_id
@@ -72,7 +82,7 @@ export async function getTaskById(taskId: string) {
 
 export async function getTaskSteps(taskId: string) {
   const { rows } = await pool.query(
-    `SELECT ts.*, u.name as performed_by_name, sbs.label as boarding_size_label,
+    `SELECT ts.*, u.name as performed_by_name, u.email as performed_by_email, sbs.label as boarding_size_label,
        COALESCE(
          (SELECT json_agg(json_build_object(
             'id', tsp.id, 'photo_url', tsp.photo_url,

@@ -14,7 +14,7 @@ const PAGE_SIZE = 50;
 
 const TYPE_LABEL: Record<string, string> = {
   recee: 'Recee', installation_post_recee: 'Installation (After Recee)',
-  installation_without_recee: 'Installation Without Recee', pamphlet_distribution: 'Pamphlet Distribution',
+  installation_without_recee: 'Installation Without Recee', pamphlet_distribution: 'Direct Installation',
 };
 const OUTLET_LABEL: Record<string, string> = { speed: 'SPEED', non_speed: 'Non-SPEED', not_recorded: 'Not recorded' };
 const STATUS_LABEL: Record<string, string> = {
@@ -120,7 +120,7 @@ export function ActivityReport() {
               {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select></div>
           <div style={{ gridColumn: 'span 2' }}><label>Search</label>
-            <input placeholder="Activity ID, outlet name, SPEED ID, Customer Code…" value={filters.q ?? ''} onChange={set('q')}
+            <input placeholder="Activity ID, outlet name, Customer Code…" value={filters.q ?? ''} onChange={set('q')}
               onKeyDown={(e) => e.key === 'Enter' && apply()} /></div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -223,8 +223,7 @@ export function ActivityReport() {
                     <div className="v">{dash(r.outlet_name)}</div>
                     <div className="s">{dash(r.outlet_address)}</div>
                     <div className="s">
-                      {[r.speed_id ? `SPEED ID ${r.speed_id}` : null, r.customer_code ? `Customer Code ${r.customer_code}` : null]
-                        .filter(Boolean).join(' · ') || 'No SPEED ID / Customer Code'}
+                      {r.customer_code ? `Customer Code ${r.customer_code}` : 'No Customer Code'}
                     </div>
                   </div>
                   <div className="act-sec">

@@ -33,7 +33,7 @@ export const TYPE_LABELS: Record<string, string> = {
   recee: 'Recee',
   installation_post_recee: 'Installation (After Recee)',
   installation_without_recee: 'Installation Without Recee',
-  pamphlet_distribution: 'Pamphlet Distribution',
+  pamphlet_distribution: 'Direct Installation',
 };
 
 export interface ReportUser { id: string; role: string; vendor_id: string | null }
@@ -96,7 +96,7 @@ export function buildActivityFilter(
   if (search) {
     params.push(`%${search.replace(/[%_\\]/g, '\\$&')}%`);
     const n = params.length;
-    conds.push(`(t.id::text ILIKE $${n} OR s.name ILIKE $${n} OR s.speed_id ILIKE $${n} OR s.customer_code ILIKE $${n} OR s.uid ILIKE $${n})`);
+    conds.push(`(t.id::text ILIKE $${n} OR s.name ILIKE $${n} OR s.customer_code ILIKE $${n} OR s.uid ILIKE $${n})`);
   }
 
   return { ok: true, filter: { where: conds.length ? conds.join(' AND ') : 'true', params } };
@@ -127,13 +127,13 @@ export async function queryActivities(f: ActivityFilter, limit: number | null, o
        ${fmt('ap.at')} AS reviewed_at,
        ${fmt('t.completed_at')} AS completed_at,
        s.id AS outlet_id, s.customer_code, s.uid AS store_uid,
-       ${OUTLET_SQL} AS outlet_type, s.speed_id,
+       ${OUTLET_SQL} AS outlet_type,
        s.name AS outlet_name, s.address AS outlet_address, s.lat AS outlet_lat, s.long AS outlet_long,
        s.is_field_added AS new_outlet,
        v.uid AS vendor_uid, v.name AS vendor_name,
        e.uid AS employee_uid, e.name AS employee_name,
-       cb.name AS created_by_name,
-       ab.name AS assigned_by_name,
+       COALESCE(cb.email, cb.name) AS created_by_name,
+       COALESCE(ab.email, ab.name) AS assigned_by_name,
        oe.name AS original_employee_name,
        COALESCE(hist.n, 0) AS assignments,
        CASE WHEN t.task_type = 'recee' THEN t.status ELSE parent.status END AS recee_status,
@@ -270,7 +270,6 @@ export function toExportRow(r: Record<string, any>): Record<string, unknown> {
     'Customer Code': blank(r.customer_code),
     'Store UID': blank(r.store_uid),
     'Outlet Type': OUTLET_LABELS[r.outlet_type] ?? '',
-    'SPEED ID': blank(r.speed_id),
     'Outlet Name': blank(r.outlet_name),
     'Outlet Address': blank(r.outlet_address),
     'Outlet Latitude': blank(r.outlet_lat),

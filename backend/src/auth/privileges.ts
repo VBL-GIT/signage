@@ -47,6 +47,11 @@ const DEFAULTS: Record<UserRole, Privilege[]> = {
  */
 export const RJCORP_ADMIN_ONLY: Privilege[] = ['user.manage', 'user.status', 'role.manage'];
 
+/** The fixed privilege set of a base role (rjcorp_user's real set comes from its custom role). */
+export function baseRolePrivileges(role: UserRole): Privilege[] {
+  return DEFAULTS[role] ?? [];
+}
+
 /** True for head-office accounts that see/act across all vendors. */
 export function isHeadOffice(role: UserRole): boolean {
   return role === 'rjcorp_admin' || role === 'rjcorp_user';

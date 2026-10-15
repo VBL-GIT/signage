@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../middleware/auth';
+import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
 import { bulkUsers, bulkTasks, bulkStores, bulkVendors } from '../controllers/bulk.controller';
 
 const router = Router();
 router.use(authenticate);
+router.use(auditTrail);
 
 const fileBody = z.object({ file_url: z.string().url() });
 // Stores accept two sheet layouts: the compact operational template (default)
