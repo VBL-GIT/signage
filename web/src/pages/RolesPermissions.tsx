@@ -79,7 +79,7 @@ export function RolesPermissions() {
           {data.privileges.map((p) => (
             <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, margin: 0, opacity: p.admin_only ? 0.55 : 1 }}>
               <input type="checkbox" style={{ width: 'auto' }} checked={!p.admin_only && picked.has(p.key)} disabled={p.admin_only} onChange={() => toggle(p.key)} />
-              {p.label}{p.admin_only && <span className="meta">RJ admin only</span>}
+              {p.label}{p.admin_only && <span className="meta">Not available to custom roles</span>}
             </label>
           ))}
         </div>
@@ -105,7 +105,7 @@ export function RolesPermissions() {
               <tr key={p.key}>
                 <td>
                   {p.label}
-                  {p.admin_only && <span className="badge origin-u" style={{ marginLeft: 6 }}>RJ admin only</span>}
+                  {p.admin_only && <span className="badge origin-u" style={{ marginLeft: 6 }} title="Cannot be given to a custom role (RJCorp User). RJCorp Admin has it; a Vendor Admin has it only for their own vendor's staff.">Not for custom roles</span>}
                   <div className="meta">{p.key}</div>
                 </td>
                 {columns.map((c) => (
@@ -119,7 +119,7 @@ export function RolesPermissions() {
         </table>
         <div className="meta" style={{ marginTop: 8 }}>
           RJCorp User permissions are not fixed: each account gets those of its custom role (columns on the right), and can never include
-          the "RJ admin only" items. Vendor roles are further limited to their own vendor's data by the server.
+          the "Not for custom roles" items. A Vendor Admin keeps account management too, but only for their own vendor's staff. Vendor roles are further limited to their own vendor's data by the server.
         </div>
       </Card>
 

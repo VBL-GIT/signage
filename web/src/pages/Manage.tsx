@@ -550,7 +550,7 @@ function Roles() {
           {catalog.map((p) => (
             <label
               key={p.key}
-              title={p.admin_only ? 'Only an RJCorp Admin holds this — it cannot be delegated to a custom role.' : undefined}
+              title={p.admin_only ? 'Cannot be given to a custom role (RJCorp User).' : undefined}
               style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 400, margin: 0, opacity: p.admin_only ? 0.55 : 1 }}
             >
               <input
@@ -560,7 +560,7 @@ function Roles() {
                 onChange={() => toggle(p.key)}
               />
               {p.label}
-              {p.admin_only && <span className="meta">RJCorp Admin only</span>}
+              {p.admin_only && <span className="meta">Not for custom roles</span>}
             </label>
           ))}
         </div>
