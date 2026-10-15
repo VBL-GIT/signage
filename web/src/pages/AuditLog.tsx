@@ -13,12 +13,12 @@ const ROLE_SHORT: Record<string, string> = {
 /** Who changed what, newest first — each change attributed to the email that made it. RJ admin only. */
 export function AuditLog() {
   const role = useAuth().user?.role;
-  const [filters, setFilters] = useState<AuditFilters>({});
-  const [applied, setApplied] = useState<AuditFilters>({});
+  const [filters, setFilters] = useState<AuditFilters>({ actor_role: 'rjcorp_admin' });
+  const [applied, setApplied] = useState<AuditFilters>({ actor_role: 'rjcorp_admin' });
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<AuditEntry[] | null>(null);
   const [total, setTotal] = useState(0);
-  const [actors, setActors] = useState<{ actor_email: string; changes: number }[]>([]);
+  const [actors, setActors] = useState<{ actor_email: string; actor_name: string | null; actor_role: string | null; changes: number; last_change: string }[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,15 +42,35 @@ export function AuditLog() {
   return (
     <div>
       <h1>Audit Log</h1>
-      <p className="meta">Every change made through the console, with the email of the account that made it. Newest first.</p>
+      <p className="meta">Changes made by RJ admins, with the email of the admin who made each one. Click an admin to see only their changes.</p>
+      <div className="chips" style={{ marginBottom: 12 }}>
+        {(() => {
+          const pick = (f: AuditFilters) => { setFilters(f); setApplied(f); setPage(1); };
+          const admins = actors.filter((a) => a.actor_role === 'rjcorp_admin');
+          return (
+            <>
+              <div className={`chip ${!applied.actor && applied.actor_role === 'rjcorp_admin' ? 'on' : ''}`} onClick={() => pick({ actor_role: 'rjcorp_admin' })}>
+                All RJ admins ({admins.reduce((n, a) => n + a.changes, 0)})
+              </div>
+              {admins.map((a) => (
+                <div key={a.actor_email} className={`chip ${applied.actor === a.actor_email ? 'on' : ''}`} onClick={() => pick({ actor: a.actor_email })}
+                  title={`Last change ${new Date(a.last_change).toLocaleString()}`}>
+                  {a.actor_name ? `${a.actor_name} · ` : ''}{a.actor_email} ({a.changes})
+                </div>
+              ))}
+              <div className={`chip ${!applied.actor && !applied.actor_role ? 'on' : ''}`} onClick={() => pick({})}>Everyone (incl. vendors / users)</div>
+            </>
+          );
+        })()}
+      </div>
       <ErrorBanner msg={err} />
 
       <Card style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
           <div><label>Changed by</label>
-            <select value={filters.actor ?? ''} onChange={set('actor')}>
-              <option value="">Anyone</option>
-              {actors.map((a) => <option key={a.actor_email} value={a.actor_email}>{a.actor_email} ({a.changes})</option>)}
+            <select value={filters.actor ?? ''} onChange={(e) => setFilters((f) => ({ ...f, actor: e.target.value, actor_role: e.target.value ? undefined : f.actor_role }))}>
+              <option value="">{filters.actor_role === 'rjcorp_admin' ? 'All RJ admins' : 'Anyone'}</option>
+              {actors.filter((a) => !filters.actor_role || a.actor_role === filters.actor_role).map((a) => <option key={a.actor_email} value={a.actor_email}>{a.actor_email} ({a.changes})</option>)}
             </select></div>
           <div><label>What</label>
             <select value={filters.entity_type ?? ''} onChange={set('entity_type')}>
@@ -65,7 +85,7 @@ export function AuditLog() {
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           <Button onClick={() => { setPage(1); setApplied({ ...filters }); }}>Apply</Button>
-          <Button variant="secondary" onClick={() => { setFilters({}); setPage(1); setApplied({}); }}>Reset</Button>
+          <Button variant="secondary" onClick={() => { setFilters({ actor_role: 'rjcorp_admin' }); setPage(1); setApplied({ actor_role: 'rjcorp_admin' }); }}>Reset</Button>
         </div>
       </Card>
 

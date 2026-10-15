@@ -44,6 +44,7 @@ const RULES: Record<string, Rule> = {
   'DELETE /api/users/:id': () => ({ description: 'Deleted an employee account', entity_type: 'user', label: null }),
   'POST /api/brands': (b) => ({ description: 'Created a brand', entity_type: 'brand', label: b.name ?? null }),
   'POST /api/roles': (b) => ({ description: 'Created a role', entity_type: 'role', label: b.name ?? null }),
+  'DELETE /api/roles/:id': () => ({ description: 'Deleted a role', entity_type: 'role', label: null }),
   'PATCH /api/roles/:id': (b) => ({ description: 'Edited a role', entity_type: 'role', label: b.name ?? null }),
   'POST /api/vendors': (b) => ({ description: 'Created a vendor', entity_type: 'vendor', label: b.name ?? null }),
   'PATCH /api/vendors/:id': (b) => ({ description: 'Edited a vendor', entity_type: 'vendor', label: b.name ?? null }),

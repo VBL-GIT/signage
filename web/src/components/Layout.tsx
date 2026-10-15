@@ -1,3 +1,4 @@
+import { applyTheme, getTheme, type ThemePref } from '../lib/theme';
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth, useHasPrivilege } from '../store/auth';
@@ -8,6 +9,7 @@ import { getPasswordRequestCount } from '../api';
 export function Layout() {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
+  const [theme, setTheme] = useState<ThemePref>(getTheme());
   const refreshPrivileges = useAuth((s) => s.refreshPrivileges);
   const has = useHasPrivilege();
   const navigate = useNavigate();
@@ -69,6 +71,13 @@ export function Layout() {
         {user.role === 'rjcorp_admin' && link('/audit', 'Audit Log')}
         <div className="spacer" />
         <div className="who">{user.name}<br /><span className="muted" style={{ wordBreak: 'break-all' }}>{user.email}</span><br /><span className="muted">{ROLE_LABELS[user.role]}</span></div>
+        <div className="theme-switch">
+          {(['system', 'light', 'dark'] as ThemePref[]).map((t) => (
+            <button key={t} className={theme === t ? 'on' : ''} onClick={() => { applyTheme(t); setTheme(t); }}>
+              {t === 'system' ? 'Auto' : t === 'light' ? 'Light' : 'Dark'}
+            </button>
+          ))}
+        </div>
         <Button variant="ghost" size="sm" onClick={async () => { await logout(); navigate('/login'); }}>Log out</Button>
       </nav>
       <main className="main">

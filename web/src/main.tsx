@@ -4,6 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { LightboxProvider } from './components/Lightbox';
 import './index.css';
+import { applyTheme, getTheme } from './lib/theme';
+
+applyTheme(getTheme());
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

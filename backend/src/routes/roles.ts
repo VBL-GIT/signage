@@ -4,7 +4,7 @@ import { authenticate } from '../middleware/auth';
 import { auditTrail } from '../middleware/audit';
 import { validate } from '../middleware/validate';
 import { requirePrivilege } from '../auth/privileges';
-import { listRoles, createRole, updateRole, listPrivilegeCatalog } from '../controllers/roles.controller';
+import { listRoles, createRole, updateRole, deleteRole, listPrivilegeCatalog } from '../controllers/roles.controller';
 
 const router = Router();
 router.use(authenticate);
@@ -23,5 +23,6 @@ router.patch('/:id', requirePrivilege('role.manage'), validate(z.object({
   name: z.string().min(1).optional(),
   privileges: z.array(z.string()).optional(),
 })), updateRole as any);
+router.delete('/:id', requirePrivilege('role.manage'), deleteRole as any);
 
 export default router;

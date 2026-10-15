@@ -192,6 +192,7 @@ export async function getPrivilegeCatalog() { const { data } = await api.get('/a
 export async function createRole(body: { name: string; privileges: Privilege[] }) {
   const { data } = await api.post('/api/roles', body); return data as Role;
 }
+export async function deleteRole(id: string) { await api.delete(`/api/roles/${id}`); }
 export async function updateRole(id: string, body: { name?: string; privileges?: Privilege[] }) {
   const { data } = await api.patch(`/api/roles/${id}`, body); return data as Role;
 }
@@ -380,7 +381,7 @@ export interface AuditEntry {
   action: string; description: string; entity_type: string | null; entity_id: string | null;
   entity_label: string | null; details: Record<string, unknown> | null;
 }
-export interface AuditFilters { actor?: string; entity_type?: string; date_from?: string; date_to?: string; q?: string }
+export interface AuditFilters { actor?: string; entity_type?: string; date_from?: string; date_to?: string; q?: string; actor_role?: string }
 export async function getAudit(f: AuditFilters, page: number, page_size = 50) {
   const params = { ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)), page, page_size };
   const { data } = await api.get('/api/access/audit', { params });
@@ -388,7 +389,7 @@ export async function getAudit(f: AuditFilters, page: number, page_size = 50) {
 }
 export async function getAuditActors() {
   const { data } = await api.get('/api/access/audit/actors');
-  return data as { actor_email: string; actor_name: string | null; actor_role: string | null; changes: number }[];
+  return data as { actor_email: string; actor_name: string | null; actor_role: string | null; changes: number; last_change: string }[];
 }
 
 // ---- task lookup by ID

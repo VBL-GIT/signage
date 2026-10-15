@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getAccessOverview, getPrivilegeCatalog, createRole, updateRole, setUserRole, type AccessOverview, type AccessAccount } from '../api';
+import { getAccessOverview, getPrivilegeCatalog, createRole, updateRole, deleteRole, setUserRole, type AccessOverview, type AccessAccount } from '../api';
 import { useAuth } from '../store/auth';
 import { Card, Spinner, ErrorBanner, Button } from '../components/ui';
 import { apiError } from '../api/client';
@@ -36,6 +36,11 @@ export function RolesPermissions() {
       if (editing) await updateRole(editing, body); else await createRole(body);
       startNew(); await reload();
     } catch (e) { setErr(apiError(e)); } finally { setBusy(false); }
+  }
+  async function remove(id: string, n: string, holders: number) {
+    if (!window.confirm(`Delete the role "${n}"?${holders ? ` ${holders} account(s) will lose it.` : ''} This cannot be undone.`)) return;
+    setErr(null);
+    try { await deleteRole(id); if (editing === id) startNew(); await reload(); } catch (e) { setErr(apiError(e)); }
   }
   async function assign(userId: string, roleId: string) {
     setErr(null);
@@ -141,7 +146,7 @@ export function RolesPermissions() {
       {data.custom_roles.length > 0 && <h2 style={{ marginTop: 20 }}>Custom roles</h2>}
       {data.custom_roles.map((c) => (
         <Card key={c.id}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0 }}>{c.name} <span className="muted">· {c.users.length} account{c.users.length === 1 ? '' : 's'}</span></h3><Button variant="secondary" onClick={() => startEdit(c.id, c.name, c.privileges)}>Edit</Button></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0 }}>{c.name} <span className="muted">· {c.users.length} account{c.users.length === 1 ? '' : 's'}</span></h3><div style={{ display: 'flex', gap: 6 }}><Button variant="secondary" onClick={() => startEdit(c.id, c.name, c.privileges)}>Edit</Button><Button variant="secondary" onClick={() => remove(c.id, c.name, c.users.length)}>Delete</Button></div></div>
           <div className="chips" style={{ margin: '8px 0' }}>
             {c.privileges.length === 0
               ? <span className="muted">No privileges</span>

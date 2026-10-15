@@ -11,6 +11,7 @@ export async function listAudit(req: AuthRequest, res: Response) {
   const val = (k: string) => (typeof req.query[k] === 'string' ? (req.query[k] as string).trim() : '');
 
   if (val('actor')) { params.push(val('actor').toLowerCase()); conds.push(`lower(actor_email) = $${params.length}`); }
+  if (val('actor_role')) { params.push(val('actor_role')); conds.push(`actor_role = $${params.length}`); }
   if (val('entity_type')) { params.push(val('entity_type')); conds.push(`entity_type = $${params.length}`); }
   for (const [k, op] of [['date_from', '>='], ['date_to', '<=']] as const) {
     if (!val(k)) continue;
@@ -41,7 +42,8 @@ export async function listAudit(req: AuthRequest, res: Response) {
 /** Distinct accounts that have made changes, for the filter dropdown. */
 export async function listAuditActors(_req: AuthRequest, res: Response) {
   const { rows } = await pool.query(
-    `SELECT actor_email, MAX(actor_name) AS actor_name, MAX(actor_role) AS actor_role, COUNT(*)::int AS changes
+    `SELECT actor_email, MAX(actor_name) AS actor_name, MAX(actor_role) AS actor_role, COUNT(*)::int AS changes,
+            MAX(created_at) AS last_change
        FROM audit_log GROUP BY actor_email ORDER BY actor_email`
   );
   res.json(rows);
